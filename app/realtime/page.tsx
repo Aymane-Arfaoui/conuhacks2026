@@ -46,6 +46,7 @@ export default function RealtimePage() {
   const aiIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const alarmIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [gestureHoldProgress, setGestureHoldProgress] = useState(0);
   
   // Models
   const faceModelRef = useRef<blazeface.BlazeFaceModel | null>(null);
@@ -85,30 +86,64 @@ export default function RealtimePage() {
     }
   }, [alertEvent, emergencyTriggered]);
 
-  // Play alarm sound
-  const playAlarmSound = useCallback(() => {
+  // Initialize audio context (must be called on user interaction)
+  const initAudio = useCallback(() => {
     if (!audioContextRef.current) {
       audioContextRef.current = new AudioContext();
     }
-    const ctx = audioContextRef.current;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 800;
-    gain.gain.value = 0.15;
-    osc.start();
-    setTimeout(() => {
-      osc.frequency.value = 600;
-      setTimeout(() => osc.stop(), 200);
-    }, 200);
+    if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+  }, []);
+
+  // Play alarm sound
+  const playAlarmSound = useCallback(() => {
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContext();
+      }
+      
+      if (audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
+      
+      const ctx = audioContextRef.current;
+      
+      // First beep (high)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.frequency.value = 880;
+      gain1.gain.value = 0.3;
+      osc1.start(ctx.currentTime);
+      osc1.stop(ctx.currentTime + 0.15);
+      
+      // Second beep (low)
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.frequency.value = 660;
+      gain2.gain.value = 0.3;
+      osc2.start(ctx.currentTime + 0.2);
+      osc2.stop(ctx.currentTime + 0.35);
+      
+      console.log("[ALARM] Sound played");
+    } catch (err) {
+      console.error("[ALARM] Failed to play:", err);
+    }
   }, []);
 
   // Trigger emergency response
   const triggerEmergency = useCallback(() => {
     if (emergencyTriggered) return;
     
+    console.log("[EMERGENCY] *** TRIGGERING EMERGENCY ***");
+    console.log("[EMERGENCY] Response type:", emergencySettings.emergencyResponse);
+    
     setEmergencyTriggered(true);
+    setGestureHoldProgress(0);
     
     const response = emergencySettings.emergencyResponse;
     const actions: string[] = [];
@@ -123,7 +158,7 @@ export default function RealtimePage() {
       console.log("[EMERGENCY] Sounding alarm...");
       // Start continuous alarm
       playAlarmSound();
-      alarmIntervalRef.current = setInterval(playAlarmSound, 600);
+      alarmIntervalRef.current = setInterval(playAlarmSound, 500);
     }
     
     setEmergencyAction(actions.join(" + "));
@@ -132,7 +167,7 @@ export default function RealtimePage() {
     setAiEvents(prev => [{
       type: "EMERGENCY",
       severity: 5,
-      label: `Emergency triggered: ${actions.join(", ")}`,
+      label: `EMERGENCY TRIGGERED: ${actions.join(", ")}`,
       time: new Date().toLocaleTimeString("en-US", { hour12: false }),
       timestamp: Date.now(),
       isDangerous: true
@@ -204,6 +239,9 @@ export default function RealtimePage() {
   // Start camera
   const startCamera = useCallback(async () => {
     try {
+      // Initialize audio context on user interaction
+      initAudio();
+      
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 1280, height: 720, facingMode: "user" },
         audio: false,
@@ -217,7 +255,7 @@ export default function RealtimePage() {
     } catch {
       return false;
     }
-  }, []);
+  }, [initAudio]);
 
   // Stop camera
   const stopCamera = useCallback(() => {
@@ -393,15 +431,31 @@ export default function RealtimePage() {
     }
 
     // Check for emergency gesture
-    if (emergencySettings.enabled && gesture.type === emergencySettings.emergencyGesture && gesture.confidence > 0.7) {
+    const isEmergencyGestureDetected = emergencySettings.enabled && 
+      gesture.type === emergencySettings.emergencyGesture && 
+      gesture.confidence > 0.5;  // Lowered threshold
+    
+    if (isEmergencyGestureDetected && !emergencyTriggered) {
       if (!emergencyGestureStartRef.current) {
         emergencyGestureStartRef.current = now;
-      } else if (now - emergencyGestureStartRef.current > 1500) {
-        // Gesture held for 1.5 seconds - trigger emergency
+        console.log("[EMERGENCY] Started detecting:", gesture.type, "confidence:", gesture.confidence);
+      }
+      
+      const holdTime = now - emergencyGestureStartRef.current;
+      const progress = Math.min(holdTime / 2000, 1); // 2 seconds to trigger
+      setGestureHoldProgress(progress);
+      
+      if (holdTime > 2000) {
+        // Gesture held for 2 seconds - trigger emergency
+        console.log("[EMERGENCY] Hold time reached, triggering!");
         triggerEmergency();
       }
-    } else {
+    } else if (!isEmergencyGestureDetected) {
+      if (emergencyGestureStartRef.current) {
+        console.log("[EMERGENCY] Gesture lost");
+      }
       emergencyGestureStartRef.current = null;
+      setGestureHoldProgress(0);
     }
 
     // FACE DETECTION (BlazeFace)
@@ -467,6 +521,11 @@ export default function RealtimePage() {
     setHandCount(detectedHands);
     setCurrentGesture(gesture);
     addLog(gesture);
+    
+    // Debug: Log when emergency gesture is detected
+    if (gesture.type !== GestureType.NONE && gesture.type === emergencySettings.emergencyGesture) {
+      console.log(`[GESTURE] Emergency gesture detected: ${gesture.type}, confidence: ${gesture.confidence.toFixed(2)}`);
+    }
 
     // HUD
     ctx.font = "bold 14px monospace";
@@ -644,10 +703,22 @@ export default function RealtimePage() {
               <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-0" playsInline muted />
               <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-cover" />
               
-              {/* Emergency gesture indicator */}
+              {/* Emergency gesture indicator with progress */}
               {isEmergencyGesture && !emergencyTriggered && (
-                <div className="absolute top-4 left-4 bg-amber-500/90 text-black px-4 py-2 rounded-lg font-bold text-sm animate-pulse">
-                  Hold {GESTURE_INFO[emergencySettings.emergencyGesture].label} for 1.5s to trigger emergency
+                <div className="absolute top-4 left-4 right-4 bg-amber-500/95 text-black px-4 py-3 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-sm">
+                      {GESTURE_INFO[emergencySettings.emergencyGesture].icon} HOLD {GESTURE_INFO[emergencySettings.emergencyGesture].label.toUpperCase()}
+                    </span>
+                    <span className="font-mono text-sm">{Math.round(gestureHoldProgress * 100)}%</span>
+                  </div>
+                  <div className="h-2 bg-black/20 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-red-600 transition-all duration-100"
+                      style={{ width: `${gestureHoldProgress * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-xs mt-1 opacity-80">Keep holding for 2 seconds to trigger emergency</p>
                 </div>
               )}
               
@@ -685,12 +756,17 @@ export default function RealtimePage() {
               </button>
               
               {/* Emergency config summary */}
-              {emergencySettings.enabled && (
-                <div className="flex items-center gap-2 text-xs text-zinc-500 bg-zinc-800/50 px-3 py-1.5 rounded">
-                  <Shield size={14} className="text-orange-400" />
-                  <span>Emergency: <span className="text-orange-400">{GESTURE_INFO[emergencySettings.emergencyGesture].label}</span></span>
-                </div>
-              )}
+              <div className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded ${
+                emergencySettings.enabled ? 'bg-orange-500/20 text-orange-400' : 'bg-zinc-800/50 text-zinc-500'
+              }`}>
+                <Shield size={14} />
+                <span>
+                  {emergencySettings.enabled 
+                    ? <>Emergency: <span className="font-bold">{GESTURE_INFO[emergencySettings.emergencyGesture].label}</span></>
+                    : 'Emergency Disabled'
+                  }
+                </span>
+              </div>
               
               <div className="flex-1" />
               <div className="text-xs text-zinc-500 font-mono">{currentTime}</div>
