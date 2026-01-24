@@ -1,36 +1,96 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# EyeWatch 👁️
 
-## Getting Started
+**AI-Powered Realtime Surveillance Intelligence**
 
-First, run the development server:
+Streams webcam frames to a Python FastAPI backend for real-time analysis using YOLOv8 object detection and MediaPipe pose/hand tracking.
+
+## Features
+
+- 🎥 **Realtime Webcam Streaming** - Configurable FPS (2-10)
+- 🤖 **YOLOv8 Detection** - Person and object detection with tracking
+- 🦴 **Pose Estimation** - Full body skeleton with MediaPipe
+- 🖐️ **Hand Tracking** - Left/right hand landmarks + gesture detection
+- 🚨 **Event Detection**: Zone intrusion, loitering, fall detection
+- 📊 **Event Feed** - Real-time severity-coded event log
+- 📝 **Report Generation** - AI-powered incident reports (optional)
+
+## Project Structure
+
+```
+conuhacks2026/
+├── analyzer/              # Python FastAPI backend
+│   ├── main.py            # WebSocket server
+│   ├── yolo.py            # YOLOv8 detection
+│   ├── mediapipe_models.py # Pose & hand tracking
+│   ├── events.py          # Event detection logic
+│   ├── buffer.py          # Track state management
+│   └── requirements.txt
+├── app/                   # Next.js frontend
+│   ├── realtime/page.tsx  # Main surveillance page
+│   └── api/report/route.ts # Report generation API
+├── package.json
+└── .env.local             # Your API keys
+```
+
+## Quick Start
+
+### Terminal 1 - Python Backend
+
+```bash
+cd analyzer
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+### Terminal 2 - Next.js Frontend
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Open the App
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Navigate to **http://localhost:3000/realtime** and click **START**.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Environment Variables
 
-## Learn More
+Your `.env.local` already has the keys. They're used for:
 
-To learn more about Next.js, take a look at the following resources:
+| Key | Purpose |
+|-----|---------|
+| `OPENAI_API_KEY` | Report generation (server-side) |
+| `GEMINI_API_KEY` | AI reasoning on events (optional) |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Add this to `.env.local` for the WebSocket URL:
+```
+NEXT_PUBLIC_ANALYZER_WS_URL=ws://127.0.0.1:8000/ws
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## API Reference
 
-## Deploy on Vercel
+### WebSocket `/ws`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Client sends:** Binary JPEG frame data
+- **Server responds:** JSON with detections, pose, hands, events
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### HTTP Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| GET | `/zone` | Get restricted zone polygon |
+| POST | `/zone` | Update restricted zone |
+
+## Event Types
+
+| Type | Severity | Trigger |
+|------|----------|---------|
+| INTRUSION | 1 | Person enters restricted zone |
+| LOITERING | 2 | Person in zone > 10 seconds |
+| FALL | 3 | Body angle/bbox suggests fall |
+
+---
+
+Built for ConuHacks 2026 🚀
