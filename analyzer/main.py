@@ -1,5 +1,6 @@
 """
-EyeWatch Analyzer - AI-powered surveillance with face/pose detection.
+EyeWatch Analyzer - AI surveillance with holistic body detection.
+Uses MediaPipe Holistic for accurate face, pose, and hand detection.
 """
 import os
 import time
@@ -14,29 +15,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from yolo import YOLODetector
-from face_detector import FaceDetector
-from events import EventEngine
+from holistic_detector import HolisticDetector
 from buffer import TrackBuffer
-from ai_analyzer import AIAnalyzer
 
 load_dotenv()
 
 # Global instances
 yolo_detector: Optional[YOLODetector] = None
-face_detector: Optional[FaceDetector] = None
-event_engine: Optional[EventEngine] = None
+holistic_detector: Optional[HolisticDetector] = None
 track_buffer: Optional[TrackBuffer] = None
-ai_analyzer: Optional[AIAnalyzer] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize models on startup."""
-    global yolo_detector, face_detector, event_engine, track_buffer, ai_analyzer
+    global yolo_detector, holistic_detector, track_buffer
     
     print("")
     print("=" * 60)
-    print("  EYEWATCH - AI Surveillance System")
+    print("  EYEWATCH - AI Surveillance System v5.0")
     print("=" * 60)
     print("")
     
@@ -44,27 +41,22 @@ async def lifespan(app: FastAPI):
     model_path = os.getenv("YOLO_MODEL", "yolov8n.pt")
     yolo_detector = YOLODetector(model_path=model_path, confidence=0.5)
     
-    # Initialize Face Detector
-    face_detector = FaceDetector()
-    
-    # Initialize event engine
-    event_engine = EventEngine()
+    # Initialize Holistic Detector (face + pose + hands)
+    holistic_detector = HolisticDetector()
     
     # Initialize tracker
     track_buffer = TrackBuffer(max_distance=100.0, max_age=2.0)
     
-    # Initialize AI analyzer (Gemini)
-    ai_analyzer = AIAnalyzer()
-    
     print("")
-    print("  DETECTION MODES:")
-    if ai_analyzer.is_available():
-        print("  [+] AI Analysis (Gemini) - ACTIVE")
-    else:
-        print("  [-] AI Analysis - Set GEMINI_API_KEY in .env")
-    print("  [+] Face Detection - Eyes, Nose, Mouth")
-    print("  [+] Body Tracking - Shoulders, Pose")
-    print("  [+] Eye State Monitoring - Open/Closed")
+    print("  FEATURES:")
+    print("  [+] Person Detection (YOLO)")
+    print("  [+] Face Mesh (468 landmarks)")
+    print("  [+] Eye Tracking (open/closed)")
+    print("  [+] Hand Detection (21 landmarks each)")
+    print("  [+] Pose Estimation (33 landmarks)")
+    print("  [+] Gesture Recognition:")
+    print("      - Open Palm, Fist, Pointing, Peace")
+    print("      - Hand on Head (distress signal)")
     print("")
     print("=" * 60)
     print("")
@@ -72,9 +64,11 @@ async def lifespan(app: FastAPI):
     yield
     
     print("[EyeWatch] Shutting down...")
+    if holistic_detector:
+        holistic_detector.close()
 
 
-app = FastAPI(title="EyeWatch AI", version="4.0.0", lifespan=lifespan)
+app = FastAPI(title="EyeWatch AI", version="5.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -87,10 +81,7 @@ app.add_middleware(
 
 @app.get("/health")
 async def health_check():
-    return {
-        "status": "healthy",
-        "ai_available": ai_analyzer.is_available() if ai_analyzer else False,
-    }
+    return {"status": "healthy", "version": "5.0.0"}
 
 
 class FPSCounter:
@@ -128,78 +119,73 @@ async def websocket_endpoint(websocket: WebSocket):
             
             frame_id += 1
             
-            # 1. YOLO detection
+            # 1. YOLO person detection
             detections = yolo_detector.detect(frame)
             detections = track_buffer.update(detections)
             
             person_dets = [d for d in detections if d["cls"] == "person"]
             
-            # 2. Face and body detection for each person
-            faces = []
+            # 2. Holistic detection for each person
+            bodies = []
+            all_gestures = []
+            events = []
+            
             for det in person_dets:
                 track_id = det.get("track_id", 0)
                 bbox = det["bbox"]
                 
-                # Detect face landmarks
-                face_data = face_detector.detect_face_landmarks(frame, bbox, track_id)
+                # Get holistic data (face, pose, hands)
+                body_data = holistic_detector.process(frame, bbox, track_id)
+                bodies.append(body_data)
                 
-                # Get pose keypoints
-                pose_data = face_detector.detect_pose_keypoints(frame, bbox)
+                # Collect gestures
+                if body_data["left_gesture"] != "none":
+                    if body_data["left_gesture"] not in all_gestures:
+                        all_gestures.append(body_data["left_gesture"])
+                if body_data["right_gesture"] != "none":
+                    if body_data["right_gesture"] not in all_gestures:
+                        all_gestures.append(body_data["right_gesture"])
                 
-                # Check eye closed duration
-                eye_closed_duration = face_detector.get_eye_closed_duration(track_id)
+                # Generate events
+                if body_data["hand_on_head"] and body_data["hand_on_head_duration"] > 1.5:
+                    events.append({
+                        "type": "DISTRESS",
+                        "severity": 3,
+                        "label": f"Hand on head ({body_data['hand_on_head_duration']:.1f}s) - distress signal",
+                        "time": time.strftime("%H:%M:%S"),
+                        "track_id": track_id
+                    })
                 
-                faces.append({
-                    "track_id": track_id,
-                    "face": face_data.get("face"),
-                    "eyes": face_data.get("eyes", []),
-                    "eyes_open": face_data.get("eyes_open", True),
-                    "eye_closed_duration": eye_closed_duration,
-                    "nose": face_data.get("nose"),
-                    "mouth": face_data.get("mouth"),
-                    "keypoints": pose_data
-                })
-            
-            # 3. AI Analysis
-            ai_events = []
-            if ai_analyzer:
-                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                frame_base64 = base64.b64encode(buffer).decode('utf-8')
-                ai_events = ai_analyzer.analyze_frame(frame_base64, detections)
-            
-            # 4. Eye-based alerts (eyes closed too long)
-            eye_events = []
-            for face_info in faces:
-                if face_info["eye_closed_duration"] > 2.0:  # Eyes closed > 2 seconds
-                    eye_events.append({
+                if body_data["eye_closed_duration"] > 2.0:
+                    events.append({
                         "type": "WARNING",
                         "severity": 3,
-                        "label": f"Eyes closed for {face_info['eye_closed_duration']:.1f}s - subject may be drowsy",
+                        "label": f"Eyes closed ({body_data['eye_closed_duration']:.1f}s) - drowsiness detected",
                         "time": time.strftime("%H:%M:%S"),
-                        "track_id": face_info["track_id"]
+                        "track_id": track_id
                     })
             
-            # 5. Combine all events
-            events = ai_events + eye_events
-            
-            # Log high severity events
+            # Log events
             for event in events:
-                if event.get("severity", 1) >= 3:
-                    ts = time.strftime("%H:%M:%S")
-                    print(f"[{ts}] >> {event['type']}: {event['label']}")
+                ts = time.strftime("%H:%M:%S")
+                print(f"[{ts}] >> {event['type']}: {event['label']}")
             
             fps = fps_counter.tick()
+            
+            # Count hands
+            hand_count = sum(1 for b in bodies if b["left_hand"]) + sum(1 for b in bodies if b["right_hand"])
             
             response = {
                 "frameId": frame_id,
                 "ts": int(time.time() * 1000),
                 "detections": detections,
-                "faces": faces,
+                "bodies": bodies,
+                "gestures": all_gestures,
                 "events": events,
-                "aiActive": ai_analyzer.is_available() if ai_analyzer else False,
                 "debug": {
                     "fps": round(fps, 1),
-                    "persons": len(person_dets)
+                    "persons": len(person_dets),
+                    "hands": hand_count
                 }
             }
             
