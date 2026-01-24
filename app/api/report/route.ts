@@ -104,6 +104,7 @@ Format as Markdown.`;
       temperature: 0.7,
     }),
   });
+  // yo
 
   if (!response.ok) throw new Error(`OpenAI API error: ${response.status}`);
   const data = await response.json();
