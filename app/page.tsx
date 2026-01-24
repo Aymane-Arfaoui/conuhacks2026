@@ -106,7 +106,7 @@ export default function Home() {
           <aside className="lg:col-span-4 flex flex-col space-y-4">
             <GestureDisplay currentGesture={currentGesture} />
             
-            <div className="grid grid-cols-1 gap-4">
+            {/* <div className="grid grid-cols-1 gap-4">
                <div className="p-4 bg-slate-800/40 rounded-xl border border-slate-700/50 flex items-center space-x-4">
                   <div className="bg-indigo-900/50 p-3 rounded-lg">
                     <BrainCircuit className="text-indigo-400" size={24} />
@@ -116,7 +116,7 @@ export default function Home() {
                     <p className="text-white font-medium">{isActive ? 'Live Processing' : 'Standby'}</p>
                   </div>
                </div>
-            </div>
+            </div> */}
           </aside>
         </div>
 
