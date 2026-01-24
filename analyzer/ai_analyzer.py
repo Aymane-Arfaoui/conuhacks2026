@@ -1,12 +1,12 @@
 """
 AI Frame Analyzer using Google Gemini.
-Actually analyzes what's happening in the frame instead of heuristics.
+Detects: drowsiness, distress, danger, abnormal behavior.
 """
 import os
 import base64
 import json
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 try:
     import google.generativeai as genai
@@ -17,128 +17,153 @@ except ImportError:
 
 
 class AIAnalyzer:
-    """
-    Uses Gemini AI to analyze video frames for dangerous situations.
-    """
+    """Uses Gemini AI to analyze video frames for safety concerns."""
     
     def __init__(self):
         self.model = None
         self.last_analysis_time = 0
-        self.analysis_interval = 2.0  # Analyze every 2 seconds
-        self.last_events: List[Dict] = []
+        self.analysis_interval = 1.2  # Every 1.2 seconds
+        self.failed_attempts = 0
+        self.max_failures = 10  # More lenient
         
         api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         
         if GEMINI_AVAILABLE and api_key:
             try:
                 genai.configure(api_key=api_key)
-                self.model = genai.GenerativeModel('gemini-1.5-flash')
-                print("[AI] ✅ Gemini AI initialized successfully")
+                
+                # Try different models
+                models_to_try = [
+                    'gemini-2.0-flash-exp',
+                    'gemini-1.5-flash',
+                    'gemini-1.5-flash-latest',
+                    'gemini-pro-vision',
+                ]
+                
+                for model_name in models_to_try:
+                    try:
+                        self.model = genai.GenerativeModel(model_name)
+                        print(f"[AI] Initialized: {model_name}")
+                        break
+                    except:
+                        continue
+                        
             except Exception as e:
-                print(f"[AI] ❌ Failed to initialize Gemini: {e}")
-                self.model = None
+                print(f"[AI] Init failed: {e}")
         else:
-            if not GEMINI_AVAILABLE:
-                print("[AI] ⚠️ Gemini not available - install google-generativeai")
             if not api_key:
-                print("[AI] ⚠️ No GEMINI_API_KEY or GOOGLE_API_KEY found in environment")
+                print("[AI] No API key - set GEMINI_API_KEY in .env")
     
     def analyze_frame(self, frame_base64: str, detections: List[Dict]) -> List[Dict[str, Any]]:
-        """
-        Analyze a frame using Gemini AI.
-        
-        Args:
-            frame_base64: Base64 encoded JPEG image
-            detections: YOLO detections for context
-            
-        Returns:
-            List of events detected
-        """
+        """Analyze frame for safety concerns."""
         now = time.time()
+        time_str = time.strftime("%H:%M:%S")
         
-        # Rate limit - only analyze every N seconds
+        person_count = len([d for d in detections if d["cls"] == "person"])
+        
+        # Rate limit
         if now - self.last_analysis_time < self.analysis_interval:
-            return self.last_events
+            return []
         
         self.last_analysis_time = now
         
-        if not self.model:
-            return []
+        # Fallback if no AI or too many failures
+        if not self.model or self.failed_attempts >= self.max_failures:
+            return self._basic_log(person_count, time_str)
         
         try:
-            # Build context from detections
-            person_count = len([d for d in detections if d["cls"] == "person"])
-            
-            prompt = f"""You are a security monitoring AI analyzing a camera frame.
+            prompt = """Look at this webcam image carefully.
 
-CONTEXT: {person_count} person(s) detected in frame.
+Describe what you see the person doing in ONE sentence.
 
-Analyze this image and identify any concerning situations.
+You MUST set "alert": true if you see ANY of these signs:
+- Eyes appear closed or nearly closed
+- Head tilting, drooping, or falling
+- Person appears tired, drowsy, or sleepy
+- Unusual posture (slumped, leaning badly)
+- Mouth wide open (yawning or distress)
+- Person looks unwell or in pain
+- Lying down or collapsed
+- Any threatening or violent behavior
 
-Mark "isDangerous": true ONLY if you CLEARLY see:
-- FAINTING: Person actively collapsing, going limp, losing consciousness
-- FALLING: Person in the act of falling or on the ground unexpectedly
-- MEDICAL DISTRESS: Person clutching chest/head in obvious pain
-- FIGHTING: Physical altercation between people
-- VIOLENCE: Aggressive threatening behavior
-- DISTRESS SIGNAL: Person with hands on head signaling for help
+Set "alert": false ONLY if person is clearly awake, alert, with eyes open and normal posture.
 
-Mark "isDangerous": false for:
-- Normal standing, sitting, walking
-- Looking at phone
-- Talking to others
-- Normal facial expressions
-- Any routine activity
+Be VERY sensitive - if in doubt, set alert to true.
 
-BE CONSERVATIVE - only flag truly dangerous situations.
+RESPOND ONLY WITH JSON:
+{"description": "what you see", "alert": true or false}"""
 
-Return ONLY valid JSON (no markdown):
-{{"events": [{{"description": "what is happening", "isDangerous": true/false}}]}}
-
-If nothing notable, return: {{"events": [{{"description": "Normal activity", "isDangerous": false}}]}}"""
-
-            # Send to Gemini
             response = self.model.generate_content([
                 prompt,
                 {"mime_type": "image/jpeg", "data": frame_base64}
             ])
             
-            # Parse response
             text = response.text.strip()
             
-            # Clean up response (remove markdown if present)
-            if text.startswith("```"):
-                text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
-            text = text.strip()
+            # Extract JSON
+            if "```" in text:
+                for part in text.split("```"):
+                    part = part.strip()
+                    if part.startswith("json"):
+                        part = part[4:].strip()
+                    if "{" in part:
+                        start = part.find("{")
+                        end = part.rfind("}") + 1
+                        if start >= 0 and end > start:
+                            text = part[start:end]
+                            break
             
             result = json.loads(text)
-            events = result.get("events", [])
+            description = result.get("description", "Analyzing...")
+            is_alert = result.get("alert", False)
             
-            # Format events
-            formatted_events = []
-            for event in events:
-                if event.get("isDangerous", False):
-                    formatted_events.append({
-                        "type": "DANGER_DETECTED",
-                        "severity": 4,
-                        "label": event.get("description", "Dangerous situation detected"),
-                        "icon": "🚨",
-                        "time": time.strftime("%H:%M:%S")
-                    })
-                else:
-                    # Don't spam normal activity events
-                    pass
+            # Reset failures on success
+            self.failed_attempts = 0
             
-            self.last_events = formatted_events
-            return formatted_events
+            if is_alert:
+                print(f"[{time_str}] !! ALERT: {description}")
+                return [{
+                    "type": "WARNING",
+                    "severity": 3,
+                    "label": description,
+                    "time": time_str
+                }]
+            else:
+                print(f"[{time_str}] -- {description}")
+                return [{
+                    "type": "INFO",
+                    "severity": 1,
+                    "label": description,
+                    "time": time_str
+                }]
+                
+        except json.JSONDecodeError:
+            self.failed_attempts += 1
+            print(f"[{time_str}] AI: JSON parse error")
+            return self._basic_log(person_count, time_str)
             
         except Exception as e:
-            print(f"[AI] Analysis error: {e}")
-            return []
+            self.failed_attempts += 1
+            err = str(e)[:60]
+            print(f"[{time_str}] AI error: {err}")
+            return self._basic_log(person_count, time_str)
+    
+    def _basic_log(self, person_count: int, time_str: str) -> List[Dict]:
+        """Basic monitoring log when AI unavailable."""
+        if person_count == 0:
+            label = "No subjects detected"
+        elif person_count == 1:
+            label = "1 subject in frame"
+        else:
+            label = f"{person_count} subjects in frame"
+        
+        print(f"[{time_str}] -- {label}")
+        return [{
+            "type": "INFO",
+            "severity": 1,
+            "label": label,
+            "time": time_str
+        }]
     
     def is_available(self) -> bool:
-        """Check if AI analysis is available."""
         return self.model is not None
-

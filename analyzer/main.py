@@ -1,8 +1,9 @@
 """
-EyeWatch Analyzer - FastAPI WebSocket server for realtime video analysis.
+EyeWatch Analyzer - AI-powered surveillance with face/pose detection.
 """
 import os
 import time
+import base64
 from typing import Optional
 from contextlib import asynccontextmanager
 
@@ -13,57 +14,67 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from yolo import YOLODetector
-from mediapipe_models import MediaPipeProcessor
+from face_detector import FaceDetector
 from events import EventEngine
 from buffer import TrackBuffer
+from ai_analyzer import AIAnalyzer
 
 load_dotenv()
 
 # Global instances
 yolo_detector: Optional[YOLODetector] = None
-mediapipe_proc: Optional[MediaPipeProcessor] = None
+face_detector: Optional[FaceDetector] = None
 event_engine: Optional[EventEngine] = None
 track_buffer: Optional[TrackBuffer] = None
+ai_analyzer: Optional[AIAnalyzer] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize models on startup."""
-    global yolo_detector, mediapipe_proc, event_engine, track_buffer
+    global yolo_detector, face_detector, event_engine, track_buffer, ai_analyzer
     
-    print("=" * 50)
-    print("[EyeWatch] Starting analyzer...")
-    print("=" * 50)
+    print("")
+    print("=" * 60)
+    print("  EYEWATCH - AI Surveillance System")
+    print("=" * 60)
+    print("")
     
+    # Initialize YOLO
     model_path = os.getenv("YOLO_MODEL", "yolov8n.pt")
     yolo_detector = YOLODetector(model_path=model_path, confidence=0.5)
-    mediapipe_proc = MediaPipeProcessor()
+    
+    # Initialize Face Detector
+    face_detector = FaceDetector()
+    
+    # Initialize event engine
     event_engine = EventEngine()
+    
+    # Initialize tracker
     track_buffer = TrackBuffer(max_distance=100.0, max_age=2.0)
     
+    # Initialize AI analyzer (Gemini)
+    ai_analyzer = AIAnalyzer()
+    
     print("")
-    print("[EyeWatch] ✅ All models loaded!")
+    print("  DETECTION MODES:")
+    if ai_analyzer.is_available():
+        print("  [+] AI Analysis (Gemini) - ACTIVE")
+    else:
+        print("  [-] AI Analysis - Set GEMINI_API_KEY in .env")
+    print("  [+] Face Detection - Eyes, Nose, Mouth")
+    print("  [+] Body Tracking - Shoulders, Pose")
+    print("  [+] Eye State Monitoring - Open/Closed")
     print("")
-    print("📌 DISTRESS SIGNALS:")
-    print("   • Touch your head for 2+ seconds")
-    print("   • System detects aggressive approaches")
-    print("   • System detects drowsiness (head drooping)")
-    print("   • System detects falls")
+    print("=" * 60)
     print("")
-    print("=" * 50)
     
     yield
     
     print("[EyeWatch] Shutting down...")
-    if mediapipe_proc:
-        mediapipe_proc.close()
 
 
-app = FastAPI(
-    title="EyeWatch Analyzer",
-    version="2.0.0",
-    lifespan=lifespan
-)
+app = FastAPI(title="EyeWatch AI", version="4.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -78,13 +89,7 @@ app.add_middleware(
 async def health_check():
     return {
         "status": "healthy",
-        "features": [
-            "distress_signal",
-            "aggressive_approach",
-            "drowsiness",
-            "fall_detection",
-            "harassment"
-        ]
+        "ai_available": ai_analyzer.is_available() if ai_analyzer else False,
     }
 
 
@@ -106,7 +111,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     
     timestamp = time.strftime("%H:%M:%S")
-    print(f"\n[{timestamp}] 🔗 Client connected")
+    print(f"[{timestamp}] Client connected")
     
     fps_counter = FPSCounter()
     frame_id = 0
@@ -123,47 +128,65 @@ async def websocket_endpoint(websocket: WebSocket):
             
             frame_id += 1
             
-            # Run YOLO detection
+            # 1. YOLO detection
             detections = yolo_detector.detect(frame)
             detections = track_buffer.update(detections)
             
-            # Process pose for each person
-            poses = []
-            hands = []
-            
             person_dets = [d for d in detections if d["cls"] == "person"]
             
+            # 2. Face and body detection for each person
+            faces = []
             for det in person_dets:
                 track_id = det.get("track_id", 0)
                 bbox = det["bbox"]
                 
-                # Process pose
-                pose_result = mediapipe_proc.process_pose(frame, bbox)
-                if pose_result:
-                    poses.append({
-                        "track_id": track_id,
-                        "landmarks": pose_result["landmarks"],
-                        "body_angle_deg": pose_result["body_angle_deg"]
-                    })
+                # Detect face landmarks
+                face_data = face_detector.detect_face_landmarks(frame, bbox, track_id)
                 
-                # Process hands
-                hand_result = mediapipe_proc.process_hands(frame, bbox, track_id)
-                hands.append({
+                # Get pose keypoints
+                pose_data = face_detector.detect_pose_keypoints(frame, bbox)
+                
+                # Check eye closed duration
+                eye_closed_duration = face_detector.get_eye_closed_duration(track_id)
+                
+                faces.append({
                     "track_id": track_id,
-                    "left": hand_result["left"],
-                    "right": hand_result["right"],
-                    "gesture": hand_result["gesture"],
-                    "clap_detected": hand_result.get("clap_detected", False)
+                    "face": face_data.get("face"),
+                    "eyes": face_data.get("eyes", []),
+                    "eyes_open": face_data.get("eyes_open", True),
+                    "eye_closed_duration": eye_closed_duration,
+                    "nose": face_data.get("nose"),
+                    "mouth": face_data.get("mouth"),
+                    "keypoints": pose_data
                 })
             
-            # Run event detection
-            events = event_engine.process(detections, poses, hands, track_buffer)
+            # 3. AI Analysis
+            ai_events = []
+            if ai_analyzer:
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                frame_base64 = base64.b64encode(buffer).decode('utf-8')
+                ai_events = ai_analyzer.analyze_frame(frame_base64, detections)
             
-            # Log events with timestamps
+            # 4. Eye-based alerts (eyes closed too long)
+            eye_events = []
+            for face_info in faces:
+                if face_info["eye_closed_duration"] > 2.0:  # Eyes closed > 2 seconds
+                    eye_events.append({
+                        "type": "WARNING",
+                        "severity": 3,
+                        "label": f"Eyes closed for {face_info['eye_closed_duration']:.1f}s - subject may be drowsy",
+                        "time": time.strftime("%H:%M:%S"),
+                        "track_id": face_info["track_id"]
+                    })
+            
+            # 5. Combine all events
+            events = ai_events + eye_events
+            
+            # Log high severity events
             for event in events:
-                severity_icon = "🔴" if event["severity"] >= 4 else "🟠" if event["severity"] >= 3 else "🟡"
-                timestamp = time.strftime("%H:%M:%S")
-                print(f"[{timestamp}] {severity_icon} {event['type']}: {event['label']}")
+                if event.get("severity", 1) >= 3:
+                    ts = time.strftime("%H:%M:%S")
+                    print(f"[{ts}] >> {event['type']}: {event['label']}")
             
             fps = fps_counter.tick()
             
@@ -171,9 +194,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 "frameId": frame_id,
                 "ts": int(time.time() * 1000),
                 "detections": detections,
-                "pose": poses,
-                "hands": hands,
+                "faces": faces,
                 "events": events,
+                "aiActive": ai_analyzer.is_available() if ai_analyzer else False,
                 "debug": {
                     "fps": round(fps, 1),
                     "persons": len(person_dets)
@@ -183,11 +206,13 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.send_json(response)
             
     except WebSocketDisconnect:
-        timestamp = time.strftime("%H:%M:%S")
-        print(f"[{timestamp}] 🔌 Client disconnected")
+        ts = time.strftime("%H:%M:%S")
+        print(f"[{ts}] Client disconnected")
     except Exception as e:
-        timestamp = time.strftime("%H:%M:%S")
-        print(f"[{timestamp}] ❌ Error: {e}")
+        ts = time.strftime("%H:%M:%S")
+        print(f"[{ts}] Error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
