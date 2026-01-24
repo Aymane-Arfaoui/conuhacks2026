@@ -27,16 +27,16 @@ export const navigationConfig: NavConfig = {
       href: "/",
     },
     {
-      label: "Features",
-      href: "#features",
+      label: "Library",
+      href: "/library",
     },
     {
-      label: "App",
+      label: "Live",
       href: "/realtime",
     },
     {
-      label: "About",
-      href: "#about",
+      label: "Stats",
+      href: "/stats",
     },
   ],
   cta: {
