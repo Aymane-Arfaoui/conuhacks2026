@@ -19,7 +19,7 @@ import {
   DEFAULT_EMERGENCY_SETTINGS,
   GESTURE_INFO
 } from "@/types";
-import { Settings, Lock, Volume2, Shield } from "lucide-react";
+import { Settings, Lock, Volume2, Shield, FolderOpen } from "lucide-react";
 
 type Status = "offline" | "loading" | "ready" | "running";
 
@@ -97,8 +97,13 @@ export default function RealtimePage() {
     }
   }, []);
 
-  // Play alarm sound
+  // Play alarm sound (single beep, no overlap)
+  const isPlayingRef = useRef(false);
+  
   const playAlarmSound = useCallback(() => {
+    // Prevent overlapping sounds
+    if (isPlayingRef.current) return;
+    
     try {
       if (!audioContextRef.current) {
         audioContextRef.current = new AudioContext();
@@ -108,30 +113,26 @@ export default function RealtimePage() {
         audioContextRef.current.resume();
       }
       
+      isPlayingRef.current = true;
       const ctx = audioContextRef.current;
       
-      // First beep (high)
-      const osc1 = ctx.createOscillator();
-      const gain1 = ctx.createGain();
-      osc1.connect(gain1);
-      gain1.connect(ctx.destination);
-      osc1.frequency.value = 880;
-      gain1.gain.value = 0.3;
-      osc1.start(ctx.currentTime);
-      osc1.stop(ctx.currentTime + 0.15);
+      // Single alarm beep
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 800;
+      gain.gain.value = 0.25;
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
       
-      // Second beep (low)
-      const osc2 = ctx.createOscillator();
-      const gain2 = ctx.createGain();
-      osc2.connect(gain2);
-      gain2.connect(ctx.destination);
-      osc2.frequency.value = 660;
-      gain2.gain.value = 0.3;
-      osc2.start(ctx.currentTime + 0.2);
-      osc2.stop(ctx.currentTime + 0.35);
+      // Allow next sound after this one finishes
+      setTimeout(() => {
+        isPlayingRef.current = false;
+      }, 400);
       
-      console.log("[ALARM] Sound played");
     } catch (err) {
+      isPlayingRef.current = false;
       console.error("[ALARM] Failed to play:", err);
     }
   }, []);
