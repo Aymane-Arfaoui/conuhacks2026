@@ -8,6 +8,7 @@ import * as tf from "@tensorflow/tfjs";
 import * as blazeface from "@tensorflow-models/blazeface";
 import LogsPanel from "@/components/LogsPanel";
 import GestureDisplay from "@/components/GestureDisplay";
+import Navbar from "@/components/Navbar";
 import { 
   GestureType, 
   GestureDetection, 
@@ -646,50 +647,10 @@ export default function RealtimePage() {
         </div>
       )}
 
-      {/* Header */}
-      <header className={`sticky top-0 z-40 border-b border-zinc-800/50 bg-zinc-950/95 backdrop-blur ${(alertEvent || emergencyTriggered) ? 'mt-14' : ''}`}>
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-5">
-            <h1 className="text-lg font-bold">
-              <span className="text-emerald-400">EYE</span><span className="text-zinc-400">WATCH</span>
-            </h1>
-            <div className="h-4 w-px bg-zinc-700" />
-            <div className={`flex items-center gap-2 text-xs uppercase ${
-              emergencyTriggered ? "text-red-400" :
-              status === "running" ? "text-emerald-400" : 
-              status === "loading" ? "text-amber-400" : 
-              status === "ready" ? "text-cyan-400" : "text-zinc-500"
-            }`}>
-              <div className={`w-2 h-2 rounded-full ${
-                emergencyTriggered ? "bg-red-500 animate-pulse" :
-                status === "running" ? "bg-emerald-400" : 
-                status === "loading" ? "bg-amber-400 animate-pulse" : 
-                status === "ready" ? "bg-cyan-400" : "bg-zinc-600"
-              }`} />
-              {emergencyTriggered ? "EMERGENCY" : status === "loading" ? "LOADING AI..." : status.toUpperCase()}
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            {status === "running" && (
-              <div className="flex items-center gap-5 text-xs">
-                <span className="text-zinc-500">FPS <span className="text-white font-bold ml-1">{fps}</span></span>
-                <span className="text-zinc-500">FACES <span className="text-cyan-400 font-bold ml-1">{faceCount}</span></span>
-                <span className="text-zinc-500">HANDS <span className="text-orange-400 font-bold ml-1">{handCount}</span></span>
-                <div className="flex items-center gap-2 text-red-400">
-                  <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />REC
-                </div>
-              </div>
-            )}
-            <Link 
-              href="/settings" 
-              className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
-              title="Emergency Settings"
-            >
-              <Settings size={18} />
-            </Link>
-          </div>
-        </div>
-      </header>
+      {/* Navbar */}
+      <div className={`${(alertEvent || emergencyTriggered) ? 'mt-14' : ''}`}>
+        <Navbar showSettings />
+      </div>
 
       {/* Main */}
       <main className="max-w-7xl mx-auto px-4 py-4">
