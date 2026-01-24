@@ -18,7 +18,7 @@ import {
   DEFAULT_EMERGENCY_SETTINGS,
   GESTURE_INFO
 } from "@/types";
-import { Settings, Lock, Volume2, Shield } from "lucide-react";
+import { Settings, Lock, Volume2, Shield, FolderOpen } from "lucide-react";
 
 type Status = "offline" | "loading" | "ready" | "running";
 
@@ -681,6 +681,13 @@ export default function RealtimePage() {
                 </div>
               </div>
             )}
+            <Link 
+              href="/library" 
+              className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
+              title="Footage Library"
+            >
+              <FolderOpen size={18} />
+            </Link>
             <Link 
               href="/settings" 
               className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
