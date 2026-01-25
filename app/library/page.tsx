@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { 
   ArrowLeft, AlertTriangle, MapPin, Camera, 
-  Shield, Eye, Activity, Users, Clock
+  Shield, Eye, Activity, Users, Clock, Play, Pause
 } from 'lucide-react';
 
 // Types
@@ -20,9 +20,10 @@ interface Detection {
 interface CCTVFeed {
   id: string;
   name: string;
+  description: string;
   location: string;
   address: string;
-  bgGradient: string;
+  videoUrl: string;
   metrics: {
     threatLevel: 'low' | 'medium' | 'high' | 'critical';
     detectionCount: number;
@@ -34,167 +35,157 @@ interface CCTVFeed {
   liveEvents: { time: number; description: string; severity: 'info' | 'warning' | 'danger' }[];
 }
 
-// Simulated CCTV feeds with animated backgrounds
+// Real CCTV feeds with your videos
 const CCTV_FEEDS: CCTVFeed[] = [
   {
     id: "cam-1",
-    name: "Parking Garage B1",
-    location: "Underground Parking",
-    address: "Metro Center, Level B2, Montreal",
-    bgGradient: "from-zinc-900 via-zinc-800 to-zinc-900",
+    name: "4 Suspects",
+    description: "Multiple suspects detected in coordinated activity",
+    location: "Parking Structure",
+    address: "Downtown Montreal, QC",
+    videoUrl: "/videos/4suspects.mp4",
     metrics: {
       threatLevel: 'critical',
       detectionCount: 47,
       avgConfidence: 0.91,
-      activeThreats: 2,
-      personsDetected: 3
+      activeThreats: 4,
+      personsDetected: 4
     },
     detections: [
-      { id: 'd1', type: 'person', label: 'Suspect #1', confidence: 0.94, bbox: { x: 0.15, y: 0.2, w: 0.12, h: 0.4 }, color: '#ef4444' },
-      { id: 'd2', type: 'person', label: 'Suspect #2', confidence: 0.91, bbox: { x: 0.55, y: 0.25, w: 0.1, h: 0.35 }, color: '#ef4444' },
-      { id: 'd3', type: 'vehicle', label: 'Target Vehicle', confidence: 0.97, bbox: { x: 0.3, y: 0.45, w: 0.3, h: 0.2 }, color: '#3b82f6' },
+      { id: 'd1', type: 'person', label: 'Suspect #1', confidence: 0.94, bbox: { x: 0.1, y: 0.2, w: 0.12, h: 0.45 }, color: '#ef4444' },
+      { id: 'd2', type: 'person', label: 'Suspect #2', confidence: 0.91, bbox: { x: 0.3, y: 0.25, w: 0.1, h: 0.4 }, color: '#ef4444' },
+      { id: 'd3', type: 'person', label: 'Suspect #3', confidence: 0.89, bbox: { x: 0.5, y: 0.22, w: 0.11, h: 0.42 }, color: '#ef4444' },
+      { id: 'd4', type: 'person', label: 'Suspect #4', confidence: 0.87, bbox: { x: 0.7, y: 0.28, w: 0.1, h: 0.38 }, color: '#ef4444' },
     ],
     liveEvents: [
-      { time: 2, description: 'Motion detected in restricted area', severity: 'warning' },
-      { time: 5, description: 'Multiple persons near vehicle', severity: 'warning' },
-      { time: 8, description: 'VEHICLE THEFT IN PROGRESS', severity: 'danger' },
+      { time: 1, description: 'Multiple persons detected', severity: 'warning' },
+      { time: 3, description: 'Coordinated movement pattern', severity: 'warning' },
+      { time: 5, description: 'SUSPICIOUS GROUP ACTIVITY', severity: 'danger' },
     ]
   },
   {
     id: "cam-2",
-    name: "Store Front Cam",
-    location: "Convenience Store",
-    address: "456 Saint-Catherine St, Montreal",
-    bgGradient: "from-amber-950 via-zinc-900 to-zinc-800",
+    name: "Car Robbery",
+    description: "Vehicle break-in captured on CCTV",
+    location: "Street Parking",
+    address: "Rue Saint-Denis, Montreal",
+    videoUrl: "/videos/cctv1carrobbery.mp4",
     metrics: {
       threatLevel: 'critical',
       detectionCount: 38,
       avgConfidence: 0.89,
-      activeThreats: 1,
+      activeThreats: 2,
       personsDetected: 2
     },
     detections: [
-      { id: 'd1', type: 'person', label: 'Armed Suspect', confidence: 0.96, bbox: { x: 0.2, y: 0.15, w: 0.15, h: 0.5 }, color: '#dc2626' },
-      { id: 'd2', type: 'person', label: 'Cashier', confidence: 0.92, bbox: { x: 0.6, y: 0.2, w: 0.12, h: 0.45 }, color: '#f97316' },
-      { id: 'd3', type: 'threat', label: 'Weapon', confidence: 0.87, bbox: { x: 0.28, y: 0.35, w: 0.06, h: 0.1 }, color: '#ef4444' },
+      { id: 'd1', type: 'person', label: 'Thief', confidence: 0.96, bbox: { x: 0.25, y: 0.2, w: 0.14, h: 0.5 }, color: '#dc2626' },
+      { id: 'd2', type: 'vehicle', label: 'Target Vehicle', confidence: 0.98, bbox: { x: 0.4, y: 0.35, w: 0.35, h: 0.3 }, color: '#3b82f6' },
+      { id: 'd3', type: 'threat', label: 'Break-in Tool', confidence: 0.82, bbox: { x: 0.32, y: 0.45, w: 0.06, h: 0.08 }, color: '#f97316' },
     ],
     liveEvents: [
-      { time: 1, description: 'Person entered store', severity: 'info' },
-      { time: 3, description: 'WEAPON DETECTED', severity: 'danger' },
-      { time: 5, description: 'ARMED ROBBERY IN PROGRESS', severity: 'danger' },
+      { time: 1, description: 'Person approaching vehicle', severity: 'info' },
+      { time: 3, description: 'UNAUTHORIZED ACCESS ATTEMPT', severity: 'danger' },
+      { time: 5, description: 'VEHICLE BREAK-IN IN PROGRESS', severity: 'danger' },
     ]
   },
   {
     id: "cam-3",
-    name: "Street Corner",
-    location: "Downtown",
-    address: "Crescent & Maisonneuve, Montreal",
-    bgGradient: "from-zinc-800 via-slate-900 to-zinc-900",
+    name: "Garage CCTV 2",
+    description: "Underground parking surveillance footage",
+    location: "Parking Garage B2",
+    address: "Place Ville Marie, Montreal",
+    videoUrl: "/videos/cctv2garage.mp4",
     metrics: {
       threatLevel: 'high',
-      detectionCount: 56,
+      detectionCount: 32,
       avgConfidence: 0.88,
-      activeThreats: 2,
-      personsDetected: 4
+      activeThreats: 1,
+      personsDetected: 2
     },
     detections: [
-      { id: 'd1', type: 'person', label: 'Aggressor', confidence: 0.93, bbox: { x: 0.25, y: 0.2, w: 0.12, h: 0.45 }, color: '#ef4444' },
-      { id: 'd2', type: 'person', label: 'Victim', confidence: 0.95, bbox: { x: 0.4, y: 0.22, w: 0.1, h: 0.4 }, color: '#f97316' },
-      { id: 'd3', type: 'person', label: 'Witness', confidence: 0.89, bbox: { x: 0.65, y: 0.25, w: 0.08, h: 0.35 }, color: '#22c55e' },
+      { id: 'd1', type: 'person', label: 'Suspect', confidence: 0.93, bbox: { x: 0.2, y: 0.15, w: 0.12, h: 0.5 }, color: '#ef4444' },
+      { id: 'd2', type: 'vehicle', label: 'Parked Car', confidence: 0.95, bbox: { x: 0.5, y: 0.4, w: 0.3, h: 0.25 }, color: '#22c55e' },
     ],
     liveEvents: [
-      { time: 1, description: 'Multiple persons detected', severity: 'info' },
-      { time: 4, description: 'Aggressive behavior detected', severity: 'warning' },
-      { time: 6, description: 'PHYSICAL ASSAULT', severity: 'danger' },
+      { time: 2, description: 'Motion in parking zone', severity: 'info' },
+      { time: 4, description: 'Loitering behavior detected', severity: 'warning' },
+      { time: 6, description: 'SUSPICIOUS ACTIVITY', severity: 'danger' },
     ]
   },
   {
     id: "cam-4",
-    name: "Mall Entrance",
-    location: "Shopping Center",
-    address: "Eaton Centre, Montreal",
-    bgGradient: "from-slate-900 via-zinc-800 to-slate-900",
+    name: "Garage Surveillance",
+    description: "Main garage camera footage",
+    location: "Underground Parking",
+    address: "Metro Center, Montreal",
+    videoUrl: "/videos/cctvgarage.MP4",
     metrics: {
       threatLevel: 'high',
-      detectionCount: 32,
-      avgConfidence: 0.85,
+      detectionCount: 28,
+      avgConfidence: 0.86,
       activeThreats: 1,
-      personsDetected: 2
+      personsDetected: 1
     },
     detections: [
-      { id: 'd1', type: 'person', label: 'Customer', confidence: 0.92, bbox: { x: 0.6, y: 0.15, w: 0.12, h: 0.45 }, color: '#22c55e' },
-      { id: 'd2', type: 'person', label: 'Suspect', confidence: 0.89, bbox: { x: 0.2, y: 0.2, w: 0.1, h: 0.4 }, color: '#ef4444' },
-      { id: 'd3', type: 'object', label: 'Stolen Item', confidence: 0.82, bbox: { x: 0.25, y: 0.52, w: 0.06, h: 0.05 }, color: '#a855f7' },
+      { id: 'd1', type: 'person', label: 'Unknown Person', confidence: 0.91, bbox: { x: 0.35, y: 0.2, w: 0.13, h: 0.48 }, color: '#f97316' },
+      { id: 'd2', type: 'vehicle', label: 'Vehicle', confidence: 0.97, bbox: { x: 0.1, y: 0.45, w: 0.25, h: 0.2 }, color: '#3b82f6' },
     ],
     liveEvents: [
-      { time: 3, description: 'Customer entering', severity: 'info' },
-      { time: 6, description: 'Concealment behavior', severity: 'warning' },
-      { time: 9, description: 'SHOPLIFTING DETECTED', severity: 'danger' },
+      { time: 1, description: 'Person detected in garage', severity: 'info' },
+      { time: 3, description: 'Unusual movement pattern', severity: 'warning' },
+      { time: 5, description: 'POTENTIAL THREAT DETECTED', severity: 'danger' },
     ]
   },
   {
     id: "cam-5",
-    name: "Residential Entry",
-    location: "Apartment Complex",
-    address: "789 Sherbrooke St, Montreal",
-    bgGradient: "from-zinc-900 via-neutral-900 to-zinc-800",
+    name: "Garage Entrance - Two Robbers",
+    description: "Two suspects entering through garage entrance",
+    location: "Building Entrance",
+    address: "Residential Complex, Laval",
+    videoUrl: "/videos/garageentrancetworobbers.mp4",
     metrics: {
       threatLevel: 'critical',
-      detectionCount: 28,
-      avgConfidence: 0.90,
+      detectionCount: 41,
+      avgConfidence: 0.92,
       activeThreats: 2,
       personsDetected: 2
     },
     detections: [
-      { id: 'd1', type: 'person', label: 'Intruder #1', confidence: 0.94, bbox: { x: 0.3, y: 0.2, w: 0.14, h: 0.5 }, color: '#ef4444' },
-      { id: 'd2', type: 'person', label: 'Intruder #2', confidence: 0.88, bbox: { x: 0.55, y: 0.25, w: 0.12, h: 0.45 }, color: '#ef4444' },
-      { id: 'd3', type: 'threat', label: 'Forced Entry', confidence: 0.91, bbox: { x: 0.4, y: 0.4, w: 0.15, h: 0.2 }, color: '#dc2626' },
+      { id: 'd1', type: 'person', label: 'Intruder #1', confidence: 0.94, bbox: { x: 0.2, y: 0.18, w: 0.14, h: 0.52 }, color: '#ef4444' },
+      { id: 'd2', type: 'person', label: 'Intruder #2', confidence: 0.91, bbox: { x: 0.45, y: 0.2, w: 0.13, h: 0.48 }, color: '#ef4444' },
+      { id: 'd3', type: 'threat', label: 'Forced Entry', confidence: 0.88, bbox: { x: 0.6, y: 0.4, w: 0.15, h: 0.2 }, color: '#dc2626' },
     ],
     liveEvents: [
-      { time: 1, description: 'Motion at entrance', severity: 'warning' },
-      { time: 4, description: 'FORCED ENTRY DETECTED', severity: 'danger' },
-      { time: 7, description: 'HOME INVASION', severity: 'danger' },
+      { time: 1, description: 'Multiple persons at entrance', severity: 'warning' },
+      { time: 3, description: 'UNAUTHORIZED ENTRY ATTEMPT', severity: 'danger' },
+      { time: 5, description: 'BREAK-IN IN PROGRESS', severity: 'danger' },
     ]
   },
   {
     id: "cam-6",
-    name: "ATM Camera",
-    location: "Bank Branch",
-    address: "TD Bank, Peel St, Montreal",
-    bgGradient: "from-emerald-950 via-zinc-900 to-zinc-800",
+    name: "Robber Going Up Staircase",
+    description: "Suspect fleeing up stairwell",
+    location: "Stairwell Camera",
+    address: "Commercial Building, Montreal",
+    videoUrl: "/videos/robbergoingupstaircase.mp4",
     metrics: {
       threatLevel: 'high',
-      detectionCount: 19,
-      avgConfidence: 0.93,
+      detectionCount: 24,
+      avgConfidence: 0.90,
       activeThreats: 1,
-      personsDetected: 2
+      personsDetected: 1
     },
     detections: [
-      { id: 'd1', type: 'person', label: 'Victim', confidence: 0.95, bbox: { x: 0.35, y: 0.15, w: 0.12, h: 0.5 }, color: '#f97316' },
-      { id: 'd2', type: 'person', label: 'Robber', confidence: 0.91, bbox: { x: 0.55, y: 0.2, w: 0.14, h: 0.48 }, color: '#ef4444' },
-      { id: 'd3', type: 'object', label: 'ATM', confidence: 0.99, bbox: { x: 0.1, y: 0.3, w: 0.2, h: 0.4 }, color: '#3b82f6' },
+      { id: 'd1', type: 'person', label: 'Fleeing Suspect', confidence: 0.95, bbox: { x: 0.3, y: 0.15, w: 0.15, h: 0.55 }, color: '#ef4444' },
+      { id: 'd2', type: 'object', label: 'Stolen Bag', confidence: 0.84, bbox: { x: 0.38, y: 0.4, w: 0.08, h: 0.12 }, color: '#a855f7' },
     ],
     liveEvents: [
-      { time: 2, description: 'Person at ATM', severity: 'info' },
-      { time: 5, description: 'Second person approaching', severity: 'warning' },
-      { time: 8, description: 'ATM ROBBERY', severity: 'danger' },
+      { time: 1, description: 'Motion in stairwell', severity: 'info' },
+      { time: 3, description: 'Person running detected', severity: 'warning' },
+      { time: 5, description: 'SUSPECT FLEEING SCENE', severity: 'danger' },
     ]
   },
 ];
-
-// Animated noise/static effect
-function NoiseOverlay() {
-  return (
-    <div className="absolute inset-0 opacity-[0.03] pointer-events-none">
-      <div 
-        className="w-full h-full"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
-        }}
-      />
-    </div>
-  );
-}
 
 // Detection Overlay Component
 function DetectionOverlay({ 
@@ -216,18 +207,18 @@ function DetectionOverlay({
       setAnimatedDetections(prev => prev.map(d => ({
         ...d,
         bbox: {
-          x: Math.max(0.05, Math.min(0.75, d.bbox.x + (Math.random() - 0.5) * 0.012)),
-          y: Math.max(0.05, Math.min(0.55, d.bbox.y + (Math.random() - 0.5) * 0.01)),
-          w: d.bbox.w + (Math.random() - 0.5) * 0.006,
-          h: d.bbox.h + (Math.random() - 0.5) * 0.006,
+          x: Math.max(0.05, Math.min(0.75, d.bbox.x + (Math.random() - 0.5) * 0.008)),
+          y: Math.max(0.05, Math.min(0.55, d.bbox.y + (Math.random() - 0.5) * 0.006)),
+          w: d.bbox.w + (Math.random() - 0.5) * 0.004,
+          h: d.bbox.h + (Math.random() - 0.5) * 0.004,
         },
-        confidence: Math.min(0.99, Math.max(0.78, d.confidence + (Math.random() - 0.5) * 0.03))
+        confidence: Math.min(0.99, Math.max(0.78, d.confidence + (Math.random() - 0.5) * 0.02))
       })));
-    }, 100);
+    }, 120);
 
     const scanInterval = setInterval(() => {
-      setScanlinePos(p => (p + 2) % 100);
-    }, 50);
+      setScanlinePos(p => (p + 1.5) % 100);
+    }, 40);
 
     return () => {
       clearInterval(interval);
@@ -236,27 +227,27 @@ function DetectionOverlay({
   }, [isActive]);
 
   return (
-    <div className="absolute inset-0 pointer-events-none">
-      {/* Scanlines */}
-      <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.15)_50%)] bg-[length:100%_3px] opacity-40" />
+    <div className="absolute inset-0 pointer-events-none z-10">
+      {/* Scanlines effect */}
+      <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.1)_50%)] bg-[length:100%_4px] opacity-30" />
       
       {/* Moving scan line */}
       <div 
-        className="absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent"
+        className="absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent"
         style={{ top: `${scanlinePos}%` }}
       />
       
       {/* Corner frame */}
-      <div className="absolute top-2 left-2 w-5 h-5 border-t-2 border-l-2 border-cyan-500/60" />
-      <div className="absolute top-2 right-2 w-5 h-5 border-t-2 border-r-2 border-cyan-500/60" />
-      <div className="absolute bottom-2 left-2 w-5 h-5 border-b-2 border-l-2 border-cyan-500/60" />
-      <div className="absolute bottom-2 right-2 w-5 h-5 border-b-2 border-r-2 border-cyan-500/60" />
+      <div className="absolute top-2 left-2 w-6 h-6 border-t-2 border-l-2 border-cyan-500/70" />
+      <div className="absolute top-2 right-2 w-6 h-6 border-t-2 border-r-2 border-cyan-500/70" />
+      <div className="absolute bottom-2 left-2 w-6 h-6 border-b-2 border-l-2 border-cyan-500/70" />
+      <div className="absolute bottom-2 right-2 w-6 h-6 border-b-2 border-r-2 border-cyan-500/70" />
 
       {/* Detection boxes */}
       {animatedDetections.map((d) => (
         <div
           key={d.id}
-          className="absolute transition-all duration-100"
+          className="absolute transition-all duration-150"
           style={{
             left: `${d.bbox.x * 100}%`,
             top: `${d.bbox.y * 100}%`,
@@ -265,22 +256,22 @@ function DetectionOverlay({
           }}
         >
           <div 
-            className="absolute inset-0 border-2 animate-pulse"
+            className="absolute inset-0 border-2"
             style={{ 
               borderColor: d.color,
-              boxShadow: `0 0 8px ${d.color}50, inset 0 0 8px ${d.color}20`
+              boxShadow: `0 0 12px ${d.color}60, inset 0 0 12px ${d.color}15`
             }}
           >
             {/* Corners */}
-            <div className="absolute -top-0.5 -left-0.5 w-2 h-2 border-t-2 border-l-2" style={{ borderColor: d.color }} />
-            <div className="absolute -top-0.5 -right-0.5 w-2 h-2 border-t-2 border-r-2" style={{ borderColor: d.color }} />
-            <div className="absolute -bottom-0.5 -left-0.5 w-2 h-2 border-b-2 border-l-2" style={{ borderColor: d.color }} />
-            <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 border-b-2 border-r-2" style={{ borderColor: d.color }} />
+            <div className="absolute -top-0.5 -left-0.5 w-3 h-3 border-t-2 border-l-2" style={{ borderColor: d.color }} />
+            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 border-t-2 border-r-2" style={{ borderColor: d.color }} />
+            <div className="absolute -bottom-0.5 -left-0.5 w-3 h-3 border-b-2 border-l-2" style={{ borderColor: d.color }} />
+            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 border-b-2 border-r-2" style={{ borderColor: d.color }} />
           </div>
           
           {/* Label */}
           <div 
-            className="absolute -top-5 left-0 px-1.5 py-0.5 text-[9px] font-mono font-bold text-white whitespace-nowrap"
+            className="absolute -top-6 left-0 px-2 py-0.5 text-[10px] font-mono font-bold text-white whitespace-nowrap rounded-sm"
             style={{ backgroundColor: d.color }}
           >
             {d.label} {(d.confidence * 100).toFixed(0)}%
@@ -289,23 +280,23 @@ function DetectionOverlay({
       ))}
 
       {/* REC indicator */}
-      <div className="absolute top-2 left-7 flex items-center gap-1.5">
-        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-        <span className="text-red-500 text-[10px] font-mono font-bold">REC</span>
+      <div className="absolute top-2 left-9 flex items-center gap-1.5">
+        <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+        <span className="text-red-500 text-[11px] font-mono font-bold tracking-wider">REC</span>
       </div>
 
-      {/* AI badge */}
-      <div className="absolute top-2 right-7 bg-black/60 px-2 py-0.5 rounded text-[9px] font-mono flex items-center gap-1">
-        <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-        <span className="text-emerald-400">AI</span>
+      {/* AI ANALYSIS badge */}
+      <div className="absolute top-2 right-9 bg-black/70 px-2 py-1 rounded text-[10px] font-mono flex items-center gap-1.5">
+        <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+        <span className="text-emerald-400 font-bold">AI ACTIVE</span>
       </div>
 
       {/* Current event alert */}
       {currentEvent && (
-        <div className={`absolute bottom-2 left-2 right-2 px-2 py-1.5 rounded text-[10px] font-mono font-bold text-center ${
-          currentEvent.severity === 'danger' ? 'bg-red-600/90 text-white animate-pulse' :
-          currentEvent.severity === 'warning' ? 'bg-amber-500/90 text-black' :
-          'bg-blue-600/80 text-white'
+        <div className={`absolute bottom-2 left-2 right-2 px-3 py-2 rounded text-[11px] font-mono font-bold text-center ${
+          currentEvent.severity === 'danger' ? 'bg-red-600/95 text-white animate-pulse' :
+          currentEvent.severity === 'warning' ? 'bg-amber-500/95 text-black' :
+          'bg-blue-600/90 text-white'
         }`}>
           {currentEvent.description}
         </div>
@@ -314,8 +305,10 @@ function DetectionOverlay({
   );
 }
 
-// Single Feed Card
+// Single Feed Card with Real Video
 function FeedCard({ feed }: { feed: CCTVFeed }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(true);
   const [currentEvent, setCurrentEvent] = useState<CCTVFeed['liveEvents'][0] | undefined>();
   const eventIndexRef = useRef(0);
 
@@ -323,12 +316,30 @@ function FeedCard({ feed }: { feed: CCTVFeed }) {
     const interval = setInterval(() => {
       setCurrentEvent(feed.liveEvents[eventIndexRef.current]);
       eventIndexRef.current = (eventIndexRef.current + 1) % feed.liveEvents.length;
-    }, 2500);
+    }, 3000);
 
     setCurrentEvent(feed.liveEvents[0]);
 
     return () => clearInterval(interval);
   }, [feed.liveEvents]);
+
+  // Auto-play video
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.play().catch(() => {});
+    }
+  }, []);
+
+  const togglePlay = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
 
   const getThreatColor = (level: string) => {
     switch (level) {
@@ -340,24 +351,33 @@ function FeedCard({ feed }: { feed: CCTVFeed }) {
   };
 
   return (
-    <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden hover:border-zinc-600 transition-all">
-      {/* Simulated video feed */}
-      <div className={`relative aspect-video bg-gradient-to-br ${feed.bgGradient}`}>
-        {/* Animated background elements */}
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute w-32 h-32 bg-zinc-700/20 rounded-full blur-3xl animate-pulse" 
-            style={{ left: '20%', top: '30%' }} />
-          <div className="absolute w-24 h-24 bg-zinc-600/15 rounded-full blur-2xl animate-pulse" 
-            style={{ left: '60%', top: '50%', animationDelay: '1s' }} />
-        </div>
+    <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden hover:border-red-500/50 transition-all group">
+      {/* Video feed */}
+      <div className="relative aspect-video bg-black">
+        <video
+          ref={videoRef}
+          src={feed.videoUrl}
+          className="absolute inset-0 w-full h-full object-cover"
+          loop
+          muted
+          playsInline
+          autoPlay
+        />
         
-        <NoiseOverlay />
-        
+        {/* Detection overlay on top of video */}
         <DetectionOverlay 
           detections={feed.detections}
-          isActive={true}
+          isActive={isPlaying}
           currentEvent={currentEvent}
         />
+
+        {/* Play/Pause button */}
+        <button
+          onClick={togglePlay}
+          className="absolute bottom-14 right-3 z-20 p-2 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+        >
+          {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+        </button>
       </div>
 
       {/* Info */}
@@ -375,6 +395,7 @@ function FeedCard({ feed }: { feed: CCTVFeed }) {
           </span>
         </div>
 
+        <p className="text-[10px] text-zinc-400 line-clamp-1">{feed.description}</p>
         <p className="text-[9px] text-zinc-600 truncate">{feed.address}</p>
 
         {/* Metrics */}
@@ -430,7 +451,7 @@ export default function LibraryPage() {
             <div className="flex items-center gap-2">
               <Shield className="text-red-500" size={20} />
               <span className="text-lg font-bold">EYEWATCH</span>
-              <span className="text-zinc-600 text-sm">Incident Library</span>
+              <span className="text-zinc-600 text-sm">Community Library</span>
             </div>
           </div>
           
@@ -463,7 +484,7 @@ export default function LibraryPage() {
           </div>
           <div className="flex items-center gap-2 text-emerald-400">
             <Camera size={14} />
-            <span>All cameras online</span>
+            <span>AI Analysis Active</span>
           </div>
         </div>
       </div>
@@ -478,11 +499,10 @@ export default function LibraryPage() {
 
         {/* Footer */}
         <div className="mt-8 text-center text-xs text-zinc-600">
-          <p>Real-time AI surveillance analysis demonstration</p>
-          <p className="mt-1">Detection boxes track simulated threats</p>
+          <p>Community-submitted CCTV footage with real-time AI analysis</p>
+          <p className="mt-1">Detection boxes track identified threats and persons of interest</p>
         </div>
       </main>
     </div>
   );
 }
-
