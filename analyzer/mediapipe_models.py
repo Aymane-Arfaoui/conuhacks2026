@@ -9,7 +9,7 @@ import numpy as np
 
 # Try to import MediaPipe
 try:
-    import mediapipe as mp
+import mediapipe as mp
     if hasattr(mp, 'solutions'):
         USE_LEGACY_API = True
     else:
@@ -439,6 +439,6 @@ class MediaPipeProcessor:
     def close(self):
         """Release resources."""
         if self.pose and hasattr(self.pose, 'close'):
-            self.pose.close()
+        self.pose.close()
         if self.hands and hasattr(self.hands, 'close'):
-            self.hands.close()
+        self.hands.close()

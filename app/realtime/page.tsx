@@ -1,9 +1,13 @@
+/* eslint-disable prefer-const */
+/* eslint-disable react-hooks/immutability */
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { analyzeFrame, DetectionEvent } from "../actions/detect";
-import { FilesetResolver, GestureRecognizer, FaceLandmarker, DrawingUtils } from "@mediapipe/tasks-vision";
+import { FilesetResolver, GestureRecognizer, DrawingUtils } from "@mediapipe/tasks-vision";
+import * as tf from "@tensorflow/tfjs";
+import * as blazeface from "@tensorflow-models/blazeface";
 import LogsPanel from "@/components/LogsPanel";
 import GestureDisplay from "@/components/GestureDisplay";
 import Navbar from "@/components/Navbar";
@@ -50,7 +54,7 @@ export default function RealtimePage() {
   const [gestureHoldProgress, setGestureHoldProgress] = useState(0);
   
   // Models
-  const faceModelRef = useRef<FaceLandmarker | null>(null);
+  const faceModelRef = useRef<blazeface.BlazeFaceModel | null>(null);
   const gestureRecognizerRef = useRef<GestureRecognizer | null>(null);
   
   // Tracking
@@ -236,21 +240,16 @@ export default function RealtimePage() {
     setStatus("loading");
     
     try {
+      await tf.ready();
+      await tf.setBackend("webgl");
+      console.log("TF.js ready");
+
+      faceModelRef.current = await blazeface.load({ maxFaces: 4 });
+      console.log("BlazeFace loaded");
+
       const vision = await FilesetResolver.forVisionTasks(
         `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`
       );
-
-      faceModelRef.current = await FaceLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
-          delegate: "GPU"
-        },
-        runningMode: "VIDEO",
-        numFaces: 4,
-        outputFaceBlendshapes: false,
-        outputFacialTransformationMatrixes: false
-      });
-      console.log("FaceLandmarker loaded");
       
       gestureRecognizerRef.current = await GestureRecognizer.createFromOptions(vision, {
         baseOptions: {
@@ -497,75 +496,41 @@ export default function RealtimePage() {
       setGestureHoldProgress(0);
     }
 
-    // FACE DETECTION (MediaPipe FaceLandmarker)
-    if (faceModelRef.current) {
-      try {
-        const faceResults = faceModelRef.current.detectForVideo(video, now);
-        detectedFaces = faceResults.faceLandmarks?.length || 0;
+    // FACE DETECTION (BlazeFace) - COMMENTED OUT
+    // if (faceModelRef.current) {
+    //   try {
+    //     const faces = await faceModelRef.current.estimateFaces(video, false);
+    //     detectedFaces = faces.length;
 
-        if (faceResults.faceLandmarks) {
-          const drawingUtils = new DrawingUtils(ctx);
+    //     for (const face of faces) {
+    //       let [x1, y1] = face.topLeft as [number, number];
+    //       let [x2, y2] = face.bottomRight as [number, number];
           
-          faceResults.faceLandmarks.forEach((landmarks) => {
-            ctx.save();
-            ctx.scale(-1, 1);
-            ctx.translate(-vw, 0);
+    //       x1 = vw - x2;
+    //       x2 = vw - (face.topLeft as [number, number])[0];
+          
+    //       const w = x2 - x1;
+    //       const h = y2 - y1;
+    //       const conf = Math.round((face.probability as number) * 100);
 
-            // Draw face mesh tesselation
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_TESSELATION, {
-              color: "#22c55e30",
-              lineWidth: 1
-            });
-            
-            // Draw face contours
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, {
-              color: "#22c55e",
-              lineWidth: 2
-            });
-            
-            // Draw eye contours
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, {
-              color: "#06b6d4",
-              lineWidth: 2
-            });
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, {
-              color: "#06b6d4",
-              lineWidth: 2
-            });
-            
-            // Draw eyebrows
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW, {
-              color: "#a855f7",
-              lineWidth: 2
-            });
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW, {
-              color: "#a855f7",
-              lineWidth: 2
-            });
-            
-            // Draw lips
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LIPS, {
-              color: "#ec4899",
-              lineWidth: 2
-            });
-            
-            // Draw iris
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS, {
-              color: "#3b82f6",
-              lineWidth: 1
-            });
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS, {
-              color: "#3b82f6",
-              lineWidth: 1
-            });
+    //       // Simple rectangle around face
+    //       ctx.strokeStyle = "#22c55e";
+    //       ctx.lineWidth = 3;
+    //       ctx.strokeRect(x1, y1, w, h);
 
-            ctx.restore();
-          });
-        }
-      } catch (e) {
-        console.error("Face detection error:", e);
-      }
-    }
+    //       // Label above the rectangle
+    //       ctx.fillStyle = "#22c55e";
+    //       const label = `FACE ${conf}%`;
+    //       ctx.font = "bold 12px monospace";
+    //       const tw = ctx.measureText(label).width + 12;
+    //       ctx.fillRect(x1, y1 - 22, tw, 20);
+    //       ctx.fillStyle = "#000";
+    //       ctx.fillText(label, x1 + 6, y1 - 6);
+    //     }
+    //   } catch (e) {
+    //     console.error("Face detection error:", e);
+    //   }
+    // }
 
     setFaceCount(detectedFaces);
     setHandCount(detectedHands);
@@ -643,12 +608,11 @@ export default function RealtimePage() {
       if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
       if (alarmIntervalRef.current) clearInterval(alarmIntervalRef.current);
       if (gestureRecognizerRef.current) gestureRecognizerRef.current.close();
-      if (faceModelRef.current) faceModelRef.current.close();
       stopCamera();
     };
   }, [loadModels, stopCamera]);
 
-  const isEmergencyGesture = currentGesture && currentGesture.type === emergencySettings.emergencyGesture;
+  const isEmergencyGesture = emergencySettings.enabled && currentGesture && currentGesture.type === emergencySettings.emergencyGesture && currentGesture.confidence > 0.5;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white font-mono">
@@ -719,7 +683,7 @@ export default function RealtimePage() {
                     {status === "loading" ? "Loading AI Models..." : status === "ready" ? "Ready" : "Offline"}
                   </p>
                   <p className="text-zinc-600 text-xs mt-2">
-                    {status === "loading" ? "MediaPipe Face Mesh + Gesture + Gemini" : "Click START to begin"}
+                    {status === "loading" ? "BlazeFace + MediaPipe Gesture + Gemini" : "Click START to begin"}
                   </p>
                 </div>
               )}
