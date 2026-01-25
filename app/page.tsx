@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { 
   ArrowRight, Shield, Eye, AlertTriangle, 
-  Camera, Activity, Lock, Bell, BarChart3,
+  Video, Activity, Lock, Bell, BarChart3,
   Users, Zap, CheckCircle
 } from 'lucide-react';
 import Navbar from '@/components/Navbar';
@@ -127,7 +127,7 @@ export default function Home() {
                 href="/library"
                 className="group px-8 py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-lg transition-all duration-300 flex items-center justify-center gap-3 border border-zinc-700"
               >
-                <Camera size={20} />
+                <Video size={20} />
                 <span>View Library</span>
               </Link>
             </div>

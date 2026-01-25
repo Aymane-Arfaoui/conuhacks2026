@@ -263,7 +263,7 @@ export default function RealtimePage() {
     setGestureHoldProgress(0);
   }, []);
 
-  // Auto-stop emergency after 5 seconds
+  // Auto-stop emergency after 30 seconds (gives time for alarm to be heard)
   useEffect(() => {
     if (emergencyTriggered) {
       if (emergencyTimeoutRef.current) {
@@ -271,7 +271,7 @@ export default function RealtimePage() {
       }
       emergencyTimeoutRef.current = setTimeout(() => {
         cancelEmergency();
-      }, 5000);
+      }, 30000);
     }
     
     return () => {
@@ -540,13 +540,12 @@ export default function RealtimePage() {
       gesture.type === emergencySettings.emergencyGesture && 
       gesture.confidence > 0.5;  // Lowered threshold
     
-    // If emergency is triggered and gesture changes away, cancel emergency
-    if (emergencyTriggered && !isEmergencyGestureDetected) {
-      cancelEmergency();
+    // Don't process emergency gesture if already triggered - let it stay active
+    if (emergencyTriggered) {
       return;
     }
     
-    if (isEmergencyGestureDetected && !emergencyTriggered) {
+    if (isEmergencyGestureDetected) {
       if (!emergencyGestureStartRef.current) {
         emergencyGestureStartRef.current = now;
         console.log("[EMERGENCY] Started detecting:", gesture.type, "confidence:", gesture.confidence);
@@ -778,22 +777,6 @@ export default function RealtimePage() {
                 }`}
               >
                 {status === "running" ? "Stop" : status === "loading" ? "Loading..." : "Start"}
-              </button>
-              
-              {/* Manual Alert Button */}
-              <button 
-                onClick={triggerEmergency}
-                disabled={emergencyTriggered || status !== "running"}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded font-bold text-sm uppercase transition-all ${
-                  emergencyTriggered 
-                    ? "bg-red-500/50 text-red-200 cursor-not-allowed" 
-                    : status === "running"
-                    ? "bg-red-600 hover:bg-red-500 text-white animate-pulse"
-                    : "bg-zinc-700 text-zinc-500 cursor-not-allowed"
-                }`}
-              >
-                <AlertTriangle size={16} />
-                {emergencyTriggered ? "Alert Active" : "Alert"}
               </button>
               
               {/* Emergency gesture progress bar */}
