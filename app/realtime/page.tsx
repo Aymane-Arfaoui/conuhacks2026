@@ -47,6 +47,8 @@ export default function RealtimePage() {
   const aiIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const alarmIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const activeOscillatorRef = useRef<OscillatorNode | null>(null);
+  const alarmStoppedRef = useRef(false);
   const [gestureHoldProgress, setGestureHoldProgress] = useState(0);
   
   // Models
@@ -101,6 +103,9 @@ export default function RealtimePage() {
   const isPlayingRef = useRef(false);
   
   const playAlarmSound = useCallback(() => {
+    // Don't play if alarm was stopped
+    if (alarmStoppedRef.current) return;
+    
     // Prevent overlapping sounds
     if (isPlayingRef.current) return;
     
@@ -126,9 +131,13 @@ export default function RealtimePage() {
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.3);
       
+      // Track active oscillator
+      activeOscillatorRef.current = osc;
+      
       // Allow next sound after this one finishes
       setTimeout(() => {
         isPlayingRef.current = false;
+        activeOscillatorRef.current = null;
       }, 400);
       
     } catch (err) {
@@ -143,6 +152,9 @@ export default function RealtimePage() {
     
     console.log("[EMERGENCY] *** TRIGGERING EMERGENCY ***");
     console.log("[EMERGENCY] Response type:", emergencySettings.emergencyResponse);
+    
+    // Reset alarm stopped flag
+    alarmStoppedRef.current = false;
     
     setEmergencyTriggered(true);
     setGestureHoldProgress(0);
@@ -176,15 +188,43 @@ export default function RealtimePage() {
     }, ...prev].slice(0, 50));
   }, [emergencyTriggered, emergencySettings, playAlarmSound]);
 
-  // Cancel emergency
+  // Cancel emergency and stop alarm
   const cancelEmergency = useCallback(() => {
-    setEmergencyTriggered(false);
-    setEmergencyAction(null);
+    console.log("[EMERGENCY] Cancelling emergency...");
+    
+    // FIRST: Set flag to prevent any new sounds
+    alarmStoppedRef.current = true;
+    
+    // Stop the alarm interval IMMEDIATELY
     if (alarmIntervalRef.current) {
       clearInterval(alarmIntervalRef.current);
       alarmIntervalRef.current = null;
     }
+    
+    // Stop any active oscillator
+    if (activeOscillatorRef.current) {
+      try {
+        activeOscillatorRef.current.stop();
+        activeOscillatorRef.current.disconnect();
+      } catch {}
+      activeOscillatorRef.current = null;
+    }
+    
+    // Close the AudioContext completely
+    isPlayingRef.current = false;
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close();
+      } catch {}
+      audioContextRef.current = null;
+    }
+    
+    // Reset state
+    setEmergencyTriggered(false);
+    setEmergencyAction(null);
     emergencyGestureStartRef.current = null;
+    
+    console.log("[EMERGENCY] Emergency cancelled - alarm stopped");
   }, []);
 
   // Add log entry
@@ -595,6 +635,11 @@ export default function RealtimePage() {
       if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
       if (alarmIntervalRef.current) clearInterval(alarmIntervalRef.current);
       if (gestureRecognizerRef.current) gestureRecognizerRef.current.close();
+      // Close audio context on unmount
+      if (audioContextRef.current) {
+        try { audioContextRef.current.close(); } catch {}
+        audioContextRef.current = null;
+      }
       stopCamera();
     };
   }, [loadModels, stopCamera]);

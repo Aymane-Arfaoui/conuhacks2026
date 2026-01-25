@@ -163,7 +163,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         "label": f"Eyes closed ({body_data['eye_closed_duration']:.1f}s) - drowsiness detected",
                         "time": time.strftime("%H:%M:%S"),
                         "track_id": track_id
-                    })
+                })
             
             # Log events
             for event in events:
