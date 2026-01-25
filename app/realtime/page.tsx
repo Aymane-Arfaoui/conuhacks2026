@@ -2,6 +2,23 @@
 /* eslint-disable react-hooks/immutability */
 "use client";
 
+// Extend Navigator interface for Web Serial API
+declare global {
+  interface Navigator {
+    serial?: Serial;
+  }
+  
+  interface Serial {
+    requestPort(options?: { filters?: { usbVendorId?: number }[] }): Promise<WebSerialPort>;
+  }
+  
+  interface WebSerialPort {
+    open(options: { baudRate: number }): Promise<void>;
+    close(): Promise<void>;
+    writable?: WritableStream<Uint8Array>;
+  }
+}
+
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { analyzeFrame, DetectionEvent } from "../actions/detect";
@@ -52,6 +69,8 @@ export default function RealtimePage() {
   const emergencyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const emergencyTriggeredRef = useRef(false);
   const [gestureHoldProgress, setGestureHoldProgress] = useState(0);
+  const serialPortRef = useRef<WebSerialPort | null>(null);
+  const [arduinoConnected, setArduinoConnected] = useState(false);
   
   // Models
   const faceModelRef = useRef<blazeface.BlazeFaceModel | null>(null);
@@ -141,6 +160,49 @@ export default function RealtimePage() {
     }
   }, []);
 
+  // Connect to Arduino (must be called from user gesture like button click)
+  const connectArduino = useCallback(async () => {
+    if (!navigator.serial) {
+      console.error('[ARDUINO] Web Serial not supported');
+      alert('Web Serial API not supported. Use Chrome or Edge.');
+      return;
+    }
+    try {
+      // Close existing connection if any
+      if (serialPortRef.current) {
+        try { await serialPortRef.current.close(); } catch {}
+        serialPortRef.current = null;
+      }
+      // Request port - requires user gesture
+      const port = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x2341 }] });
+      await port.open({ baudRate: 9600 });
+      serialPortRef.current = port;
+      setArduinoConnected(true);
+      console.log('[ARDUINO] Connected!');
+    } catch (error) {
+      console.error('[ARDUINO] Connection failed:', error);
+      setArduinoConnected(false);
+    }
+  }, []);
+
+  // Trigger Arduino buzzer via Web Serial API (uses pre-connected port)
+  const triggerBuzzer = useCallback(async () => {
+    if (!serialPortRef.current) {
+      console.log('[BUZZER] Arduino not connected');
+      return;
+    }
+    try {
+      const writer = serialPortRef.current.writable?.getWriter();
+      if (writer) {
+        await writer.write(new TextEncoder().encode('BUZZ\n'));
+        writer.releaseLock();
+      }
+      console.log('[BUZZER] Signal sent!');
+    } catch (error) {
+      console.error('[BUZZER] Failed:', error);
+    }
+  }, []);
+
   // Trigger emergency response
   const triggerEmergency = useCallback(() => {
     if (emergencyTriggeredRef.current) return;
@@ -158,6 +220,8 @@ export default function RealtimePage() {
     if (response === EmergencyResponse.LOCK_DOORS || response === EmergencyResponse.BOTH) {
       actions.push("DOORS LOCKED");
       console.log("[EMERGENCY] Locking all doors...");
+      // Trigger Arduino buzzer for door lock
+      triggerBuzzer();
     }
     
     if (response === EmergencyResponse.SOUND_ALARM || response === EmergencyResponse.BOTH) {
@@ -179,7 +243,7 @@ export default function RealtimePage() {
       timestamp: Date.now(),
       isDangerous: true
     }, ...prev].slice(0, 50));
-  }, [emergencySettings, playAlarmSound]);
+  }, [emergencySettings, playAlarmSound, triggerBuzzer]);
 
   // Cancel emergency
   const cancelEmergency = useCallback(() => {
@@ -297,7 +361,11 @@ export default function RealtimePage() {
   }, []);
 
   // AI Analysis (Gemini)
+  const aiErrorCountRef = useRef(0);
   const runAIAnalysis = useCallback(async () => {
+    // Skip if too many errors (quota exceeded)
+    if (aiErrorCountRef.current >= 3) return;
+    
     const video = videoRef.current;
     if (!video || video.readyState < 2) return;
 
@@ -311,6 +379,7 @@ export default function RealtimePage() {
     setAiAnalyzing(true);
     try {
       const result = await analyzeFrame(canvas.toDataURL("image/jpeg", 0.7));
+      aiErrorCountRef.current = 0; // Reset on success
       if (result.events?.length > 0) {
         const events: AIEvent[] = result.events.map((e: DetectionEvent) => ({
           type: e.isDangerous ? "AI ALERT" : "AI",
@@ -325,7 +394,11 @@ export default function RealtimePage() {
         if (dangerous) setAlertEvent(dangerous);
       }
     } catch (err) {
-      console.error("AI error:", err);
+      aiErrorCountRef.current++;
+      // Silently ignore quota/rate limit errors
+      if (aiErrorCountRef.current >= 3) {
+        console.log("[AI] Disabled due to quota/errors");
+      }
     }
     setAiAnalyzing(false);
   }, []);
@@ -608,6 +681,10 @@ export default function RealtimePage() {
       if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
       if (alarmIntervalRef.current) clearInterval(alarmIntervalRef.current);
       if (gestureRecognizerRef.current) gestureRecognizerRef.current.close();
+      // Close Arduino serial port
+      if (serialPortRef.current) {
+        serialPortRef.current.close().catch(() => {});
+      }
       stopCamera();
     };
   }, [loadModels, stopCamera]);
@@ -735,6 +812,19 @@ export default function RealtimePage() {
                   }
                 </span>
               </div>
+              
+              {/* Arduino Connect Button */}
+              <button 
+                onClick={connectArduino}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-all ${
+                  arduinoConnected 
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                    : 'bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700/50 border border-zinc-700'
+                }`}
+              >
+                <div className={`w-2 h-2 rounded-full ${arduinoConnected ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
+                {arduinoConnected ? 'Arduino Connected' : 'Connect Arduino'}
+              </button>
               
               <div className="flex-1" />
               <div className="text-xs text-zinc-500 font-mono">{currentTime}</div>
