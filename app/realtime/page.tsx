@@ -780,6 +780,22 @@ export default function RealtimePage() {
                 {status === "running" ? "Stop" : status === "loading" ? "Loading..." : "Start"}
               </button>
               
+              {/* Manual Alert Button */}
+              <button 
+                onClick={triggerEmergency}
+                disabled={emergencyTriggered || status !== "running"}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded font-bold text-sm uppercase transition-all ${
+                  emergencyTriggered 
+                    ? "bg-red-500/50 text-red-200 cursor-not-allowed" 
+                    : status === "running"
+                    ? "bg-red-600 hover:bg-red-500 text-white animate-pulse"
+                    : "bg-zinc-700 text-zinc-500 cursor-not-allowed"
+                }`}
+              >
+                <AlertTriangle size={16} />
+                {emergencyTriggered ? "Alert Active" : "Alert"}
+              </button>
+              
               {/* Emergency gesture progress bar */}
               {isEmergencyGesture && !emergencyTriggered && (
                 <div className="flex items-center gap-3 flex-1 max-w-xs">

@@ -262,7 +262,7 @@ export default function StatsPage() {
             <div className="h-5 w-px bg-zinc-700" />
             <div className="flex items-center gap-2">
               <Shield className="text-cyan-500" size={20} />
-              <span className="text-lg font-bold">EYEWATCH</span>
+              <span className="text-lg font-bold">MY HERO</span>
               <span className="text-zinc-600 text-sm">Analytics</span>
             </div>
           </div>
