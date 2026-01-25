@@ -3,9 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { analyzeFrame, DetectionEvent } from "../actions/detect";
-import { FilesetResolver, GestureRecognizer, DrawingUtils } from "@mediapipe/tasks-vision";
-import * as tf from "@tensorflow/tfjs";
-import * as blazeface from "@tensorflow-models/blazeface";
+import { FilesetResolver, GestureRecognizer, FaceLandmarker, DrawingUtils } from "@mediapipe/tasks-vision";
 import LogsPanel from "@/components/LogsPanel";
 import GestureDisplay from "@/components/GestureDisplay";
 import Navbar from "@/components/Navbar";
@@ -19,7 +17,7 @@ import {
   DEFAULT_EMERGENCY_SETTINGS,
   GESTURE_INFO
 } from "@/types";
-import { Settings, Lock, Volume2, Shield, FolderOpen } from "lucide-react";
+import { Settings, Lock, Volume2, Shield, FolderOpen, AlertTriangle, X, AlertCircle } from "lucide-react";
 
 type Status = "offline" | "loading" | "ready" | "running";
 
@@ -47,10 +45,12 @@ export default function RealtimePage() {
   const aiIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const alarmIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const emergencyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const emergencyTriggeredRef = useRef(false);
   const [gestureHoldProgress, setGestureHoldProgress] = useState(0);
   
   // Models
-  const faceModelRef = useRef<blazeface.BlazeFaceModel | null>(null);
+  const faceModelRef = useRef<FaceLandmarker | null>(null);
   const gestureRecognizerRef = useRef<GestureRecognizer | null>(null);
   
   // Tracking
@@ -139,11 +139,12 @@ export default function RealtimePage() {
 
   // Trigger emergency response
   const triggerEmergency = useCallback(() => {
-    if (emergencyTriggered) return;
+    if (emergencyTriggeredRef.current) return;
     
     console.log("[EMERGENCY] *** TRIGGERING EMERGENCY ***");
     console.log("[EMERGENCY] Response type:", emergencySettings.emergencyResponse);
     
+    emergencyTriggeredRef.current = true;
     setEmergencyTriggered(true);
     setGestureHoldProgress(0);
     
@@ -174,18 +175,43 @@ export default function RealtimePage() {
       timestamp: Date.now(),
       isDangerous: true
     }, ...prev].slice(0, 50));
-  }, [emergencyTriggered, emergencySettings, playAlarmSound]);
+  }, [emergencySettings, playAlarmSound]);
 
   // Cancel emergency
   const cancelEmergency = useCallback(() => {
+    console.log("[EMERGENCY] Canceling emergency response");
+    emergencyTriggeredRef.current = false;
     setEmergencyTriggered(false);
     setEmergencyAction(null);
     if (alarmIntervalRef.current) {
       clearInterval(alarmIntervalRef.current);
       alarmIntervalRef.current = null;
     }
+    if (emergencyTimeoutRef.current) {
+      clearTimeout(emergencyTimeoutRef.current);
+      emergencyTimeoutRef.current = null;
+    }
     emergencyGestureStartRef.current = null;
+    setGestureHoldProgress(0);
   }, []);
+
+  // Auto-stop emergency after 5 seconds
+  useEffect(() => {
+    if (emergencyTriggered) {
+      if (emergencyTimeoutRef.current) {
+        clearTimeout(emergencyTimeoutRef.current);
+      }
+      emergencyTimeoutRef.current = setTimeout(() => {
+        cancelEmergency();
+      }, 5000);
+    }
+    
+    return () => {
+      if (emergencyTimeoutRef.current) {
+        clearTimeout(emergencyTimeoutRef.current);
+      }
+    };
+  }, [emergencyTriggered, cancelEmergency]);
 
   // Add log entry
   const addLog = useCallback((gesture: GestureDetection) => {
@@ -210,16 +236,21 @@ export default function RealtimePage() {
     setStatus("loading");
     
     try {
-      await tf.ready();
-      await tf.setBackend("webgl");
-      console.log("TF.js ready");
-
-      faceModelRef.current = await blazeface.load({ maxFaces: 4 });
-      console.log("BlazeFace loaded");
-
       const vision = await FilesetResolver.forVisionTasks(
         `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`
       );
+
+      faceModelRef.current = await FaceLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+          delegate: "GPU"
+        },
+        runningMode: "VIDEO",
+        numFaces: 4,
+        outputFaceBlendshapes: false,
+        outputFacialTransformationMatrixes: false
+      });
+      console.log("FaceLandmarker loaded");
       
       gestureRecognizerRef.current = await GestureRecognizer.createFromOptions(vision, {
         baseOptions: {
@@ -437,6 +468,12 @@ export default function RealtimePage() {
       gesture.type === emergencySettings.emergencyGesture && 
       gesture.confidence > 0.5;  // Lowered threshold
     
+    // If emergency is triggered and gesture changes away, cancel emergency
+    if (emergencyTriggered && !isEmergencyGestureDetected) {
+      cancelEmergency();
+      return;
+    }
+    
     if (isEmergencyGestureDetected && !emergencyTriggered) {
       if (!emergencyGestureStartRef.current) {
         emergencyGestureStartRef.current = now;
@@ -460,59 +497,70 @@ export default function RealtimePage() {
       setGestureHoldProgress(0);
     }
 
-    // FACE DETECTION (BlazeFace)
+    // FACE DETECTION (MediaPipe FaceLandmarker)
     if (faceModelRef.current) {
       try {
-        const faces = await faceModelRef.current.estimateFaces(video, false);
-        detectedFaces = faces.length;
+        const faceResults = faceModelRef.current.detectForVideo(video, now);
+        detectedFaces = faceResults.faceLandmarks?.length || 0;
 
-        for (const face of faces) {
-          let [x1, y1] = face.topLeft as [number, number];
-          let [x2, y2] = face.bottomRight as [number, number];
+        if (faceResults.faceLandmarks) {
+          const drawingUtils = new DrawingUtils(ctx);
           
-          x1 = vw - x2;
-          x2 = vw - (face.topLeft as [number, number])[0];
-          
-          const w = x2 - x1;
-          const h = y2 - y1;
-          const conf = Math.round((face.probability as number) * 100);
+          faceResults.faceLandmarks.forEach((landmarks) => {
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.translate(-vw, 0);
 
-          ctx.shadowColor = "#22c55e";
-          ctx.shadowBlur = 15;
-          ctx.strokeStyle = "#22c55e";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x1, y1, w, h);
-          ctx.shadowBlur = 0;
-
-          const c = Math.min(w, h) * 0.18;
-          ctx.lineWidth = 3;
-          ctx.beginPath();
-          ctx.moveTo(x1, y1 + c); ctx.lineTo(x1, y1); ctx.lineTo(x1 + c, y1);
-          ctx.moveTo(x2 - c, y1); ctx.lineTo(x2, y1); ctx.lineTo(x2, y1 + c);
-          ctx.moveTo(x1, y2 - c); ctx.lineTo(x1, y2); ctx.lineTo(x1 + c, y2);
-          ctx.moveTo(x2 - c, y2); ctx.lineTo(x2, y2); ctx.lineTo(x2, y2 - c);
-          ctx.stroke();
-
-          ctx.fillStyle = "#22c55e";
-          const label = `FACE ${conf}%`;
-          const tw = ctx.measureText(label).width + 12;
-          ctx.fillRect(x1, y1 - 22, tw, 20);
-          ctx.fillStyle = "#000";
-          ctx.font = "bold 12px monospace";
-          ctx.fillText(label, x1 + 6, y1 - 6);
-
-          if (face.landmarks) {
-            const landmarks = face.landmarks as number[][];
-            landmarks.forEach((pt, i) => {
-              const px = vw - pt[0];
-              const py = pt[1];
-              const colors = ["#06b6d4", "#06b6d4", "#a855f7", "#ec4899", "#ec4899"];
-              ctx.fillStyle = colors[i] || "#fff";
-              ctx.beginPath();
-              ctx.arc(px, py, 4, 0, Math.PI * 2);
-              ctx.fill();
+            // Draw face mesh tesselation
+            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_TESSELATION, {
+              color: "#22c55e30",
+              lineWidth: 1
             });
-          }
+            
+            // Draw face contours
+            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, {
+              color: "#22c55e",
+              lineWidth: 2
+            });
+            
+            // Draw eye contours
+            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, {
+              color: "#06b6d4",
+              lineWidth: 2
+            });
+            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, {
+              color: "#06b6d4",
+              lineWidth: 2
+            });
+            
+            // Draw eyebrows
+            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW, {
+              color: "#a855f7",
+              lineWidth: 2
+            });
+            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW, {
+              color: "#a855f7",
+              lineWidth: 2
+            });
+            
+            // Draw lips
+            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LIPS, {
+              color: "#ec4899",
+              lineWidth: 2
+            });
+            
+            // Draw iris
+            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS, {
+              color: "#3b82f6",
+              lineWidth: 1
+            });
+            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS, {
+              color: "#3b82f6",
+              lineWidth: 1
+            });
+
+            ctx.restore();
+          });
         }
       } catch (e) {
         console.error("Face detection error:", e);
@@ -560,7 +608,7 @@ export default function RealtimePage() {
     ctx.textAlign = "left";
 
     animationRef.current = requestAnimationFrame(runDetection);
-  }, [fps, aiAnalyzing, mapGesture, addLog, emergencySettings, triggerEmergency, emergencyTriggered]);
+  }, [fps, aiAnalyzing, mapGesture, addLog, emergencySettings, triggerEmergency, emergencyTriggered, cancelEmergency]);
 
   // Start/Stop
   const toggle = useCallback(async () => {
@@ -595,6 +643,7 @@ export default function RealtimePage() {
       if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
       if (alarmIntervalRef.current) clearInterval(alarmIntervalRef.current);
       if (gestureRecognizerRef.current) gestureRecognizerRef.current.close();
+      if (faceModelRef.current) faceModelRef.current.close();
       stopCamera();
     };
   }, [loadModels, stopCamera]);
@@ -603,53 +652,45 @@ export default function RealtimePage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white font-mono">
-      {/* Emergency Banner */}
+      {/* Emergency Snackbar */}
       {emergencyTriggered && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-red-600 px-4 py-4 animate-pulse">
-          <div className="max-w-6xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Shield className="animate-bounce" size={24} />
-              <div>
-                <span className="font-bold uppercase text-lg">EMERGENCY ACTIVE</span>
-                <div className="flex items-center gap-3 mt-1 text-sm">
-                  {emergencyAction?.includes("DOORS") && (
-                    <span className="flex items-center gap-1"><Lock size={14} /> Doors Locked</span>
-                  )}
-                  {emergencyAction?.includes("ALARM") && (
-                    <span className="flex items-center gap-1"><Volume2 size={14} /> Alarm Active</span>
-                  )}
-                </div>
-              </div>
+        <div className="fixed top-4 right-4 z-[100] bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg max-w-md flex items-center gap-3 animate-pulse">
+          <AlertTriangle className="flex-shrink-0 animate-bounce" size={20} />
+          <div className="flex-1">
+            <p className="font-bold text-sm">EMERGENCY ACTIVE</p>
+            <div className="flex items-center gap-2 mt-1 text-xs">
+              {emergencyAction?.includes("DOORS") && (
+                <span className="flex items-center gap-1"><Lock size={12} /> Doors Locked</span>
+              )}
+              {emergencyAction?.includes("ALARM") && (
+                <span className="flex items-center gap-1"><Volume2 size={12} /> Alarm Active</span>
+              )}
             </div>
-            <button 
-              onClick={cancelEmergency} 
-              className="px-4 py-2 bg-white text-red-600 rounded font-bold uppercase text-sm hover:bg-gray-100"
-            >
-              Cancel Emergency
-            </button>
           </div>
+          <button 
+            onClick={cancelEmergency} 
+            className="text-white/60 hover:text-white flex-shrink-0"
+          >
+            <X size={18} />
+          </button>
         </div>
       )}
 
-      {/* Alert Banner */}
+      {/* Alert Snackbar */}
       {alertEvent && !emergencyTriggered && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-amber-600 px-4 py-3">
-          <div className="max-w-6xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full bg-white animate-ping" />
-              <span className="font-bold uppercase">ALERT</span>
-              <span className="opacity-80">|</span>
-              <span>{alertEvent.label}</span>
-            </div>
-            <button onClick={() => setAlertEvent(null)} className="text-white/80 hover:text-white text-sm">
-              Dismiss
-            </button>
+        <div className="fixed top-4 right-4 z-[100] bg-amber-500 text-black px-4 py-3 rounded-lg shadow-lg max-w-sm flex items-center gap-3 animate-slide-up">
+          <AlertCircle size={20} className="flex-shrink-0" />
+          <div className="flex-1">
+            <p className="font-semibold text-sm">{alertEvent.label}</p>
           </div>
+          <button onClick={() => setAlertEvent(null)} className="text-black/60 hover:text-black">
+            <X size={18} />
+          </button>
         </div>
       )}
 
       {/* Navbar */}
-      <div className={`${(alertEvent || emergencyTriggered) ? 'mt-14' : ''}`}>
+      <div>
         <Navbar showSettings />
       </div>
 
@@ -665,25 +706,6 @@ export default function RealtimePage() {
               <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-0" playsInline muted />
               <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-cover" />
               
-              {/* Emergency gesture indicator with progress */}
-              {isEmergencyGesture && !emergencyTriggered && (
-                <div className="absolute top-4 left-4 right-4 bg-amber-500/95 text-black px-4 py-3 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-sm">
-                      {GESTURE_INFO[emergencySettings.emergencyGesture].icon} HOLD {GESTURE_INFO[emergencySettings.emergencyGesture].label.toUpperCase()}
-                    </span>
-                    <span className="font-mono text-sm">{Math.round(gestureHoldProgress * 100)}%</span>
-                  </div>
-                  <div className="h-2 bg-black/20 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-red-600 transition-all duration-100"
-                      style={{ width: `${gestureHoldProgress * 100}%` }}
-                    />
-                  </div>
-                  <p className="text-xs mt-1 opacity-80">Keep holding for 2 seconds to trigger emergency</p>
-                </div>
-              )}
-              
               {status !== "running" && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/95">
                   <div className="w-20 h-20 rounded-full border-2 border-zinc-700 flex items-center justify-center mb-4">
@@ -697,7 +719,7 @@ export default function RealtimePage() {
                     {status === "loading" ? "Loading AI Models..." : status === "ready" ? "Ready" : "Offline"}
                   </p>
                   <p className="text-zinc-600 text-xs mt-2">
-                    {status === "loading" ? "BlazeFace + MediaPipe Gesture + Gemini" : "Click START to begin"}
+                    {status === "loading" ? "MediaPipe Face Mesh + Gesture + Gemini" : "Click START to begin"}
                   </p>
                 </div>
               )}
@@ -716,6 +738,26 @@ export default function RealtimePage() {
               >
                 {status === "running" ? "Stop" : status === "loading" ? "Loading..." : "Start"}
               </button>
+              
+              {/* Emergency gesture progress bar */}
+              {isEmergencyGesture && !emergencyTriggered && (
+                <div className="flex items-center gap-3 flex-1 max-w-xs">
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-amber-400">
+                        {GESTURE_INFO[emergencySettings.emergencyGesture].icon} HOLD
+                      </span>
+                      <span className="text-xs font-mono text-amber-400">{Math.round(gestureHoldProgress * 100)}%</span>
+                    </div>
+                    <div className="h-2 bg-zinc-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-amber-500 transition-all duration-100"
+                        style={{ width: `${gestureHoldProgress * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
               
               {/* Emergency config summary */}
               <div className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded ${
@@ -778,6 +820,22 @@ export default function RealtimePage() {
           </aside>
         </div>
       </main>
+
+      <style jsx>{`
+        @keyframes slide-up {
+          from {
+            transform: translateY(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateY(0);
+            opacity: 1;
+          }
+        }
+        .animate-slide-up {
+          animation: slide-up 0.3s ease-out;
+        }
+      `}</style>
     </div>
   );
 }
