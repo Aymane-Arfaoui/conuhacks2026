@@ -27,7 +27,7 @@ export const navigationConfig: NavConfig = {
       href: "/",
     },
     {
-      label: "Library",
+      label: "Community",
       href: "/library",
     },
     {
