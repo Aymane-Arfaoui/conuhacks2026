@@ -330,7 +330,9 @@ function FeedCard({ feed }: { feed: CCTVFeed }) {
     }
   }, []);
 
-  const togglePlay = () => {
+  const togglePlay = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering the card click
+    e.preventDefault();
     if (videoRef.current) {
       if (isPlaying) {
         videoRef.current.pause();
@@ -351,34 +353,43 @@ function FeedCard({ feed }: { feed: CCTVFeed }) {
   };
 
   return (
-    <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden hover:border-red-500/50 transition-all group">
-      {/* Video feed */}
-      <div className="relative aspect-video bg-black">
-        <video
-          ref={videoRef}
-          src={feed.videoUrl}
-          className="absolute inset-0 w-full h-full object-cover"
-          loop
-          muted
-          playsInline
-          autoPlay
-        />
-        
-        {/* Detection overlay on top of video */}
-        <DetectionOverlay 
-          detections={feed.detections}
-          isActive={isPlaying}
-          currentEvent={currentEvent}
-        />
+    <Link href={`/library/${feed.id}`} className="block">
+      <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/10 transition-all group cursor-pointer">
+        {/* Video feed */}
+        <div className="relative aspect-video bg-black">
+          <video
+            ref={videoRef}
+            src={feed.videoUrl}
+            className="absolute inset-0 w-full h-full object-cover"
+            loop
+            muted
+            playsInline
+            autoPlay
+          />
+          
+          {/* Detection overlay on top of video */}
+          <DetectionOverlay 
+            detections={feed.detections}
+            isActive={isPlaying}
+            currentEvent={currentEvent}
+          />
 
-        {/* Play/Pause button */}
-        <button
-          onClick={togglePlay}
-          className="absolute bottom-14 right-3 z-20 p-2 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
-        >
-          {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-        </button>
-      </div>
+          {/* Play/Pause button */}
+          <button
+            onClick={togglePlay}
+            className="absolute bottom-14 right-3 z-20 p-2 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+          >
+            {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+          </button>
+
+          {/* Analyze overlay on hover */}
+          <div className="absolute inset-0 bg-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <div className="bg-black/80 px-4 py-2 rounded-lg flex items-center gap-2">
+              <Eye size={16} className="text-cyan-400" />
+              <span className="text-cyan-400 text-sm font-bold uppercase">Analyze Video</span>
+            </div>
+          </div>
+        </div>
 
       {/* Info */}
       <div className="p-3 space-y-2">
@@ -419,6 +430,7 @@ function FeedCard({ feed }: { feed: CCTVFeed }) {
         </div>
       </div>
     </div>
+    </Link>
   );
 }
 

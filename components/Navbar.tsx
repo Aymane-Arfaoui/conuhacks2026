@@ -3,20 +3,33 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Menu, X, Settings } from 'lucide-react';
+import { Menu, X, Settings, ArrowLeft } from 'lucide-react';
 import { navigationConfig } from '@/config/navigation';
 
 interface NavbarProps {
   showSettings?: boolean;
+  backLink?: string;
+  backLabel?: string;
 }
 
-const Navbar = ({ showSettings = false }: NavbarProps) => {
+const Navbar = ({ showSettings = false, backLink, backLabel }: NavbarProps) => {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
     <nav className="relative w-full z-50 bg-black/40 backdrop-blur-md border-b border-white/10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
+          {/* Back Link (if provided) */}
+          {backLink && (
+            <Link
+              href={backLink}
+              className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mr-4"
+            >
+              <ArrowLeft size={18} />
+              <span className="text-xs uppercase font-bold">{backLabel || 'Back'}</span>
+            </Link>
+          )}
+          
           {/* Logo */}
           <Link
             href={navigationConfig.brand.href}
